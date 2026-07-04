@@ -1,0 +1,38 @@
+[
+  {
+    "type": "multiple_choice",
+    "content": "What is 'cat' in Vietnamese?",
+    "option_a": "Con mèo",
+    "option_b": "Con chó",
+    "option_c": "Con gà",
+    "option_d": "Con vịt",
+    "correct_answer": "A",
+    "explanation": "'Cat' nghĩa là 'con mèo' trong tiếng Việt.",
+    "example_sentence": "The cat is sleeping on the sofa."
+  },
+  {
+    "type": "multiple_choice",
+    "content": "What does 'beautiful' mean in Vietnamese?",
+    "option_a": "Xấu",
+    "option_b": "Đẹp",
+    "option_c": "Cao",
+    "option_d": "Thấp",
+    "correct_answer": "B",
+    "explanation": "'Beautiful' nghĩa là 'đẹp'.",
+    "example_sentence": "She is a beautiful girl."
+  },
+  {
+    "type": "essay",
+    "content": "Translate to Vietnamese: 'I love learning English every day'",
+    "correct_answer": "Tôi yêu thích việc học tiếng Anh mỗi ngày",
+    "explanation": "'love' = yêu thích, 'learning' = việc học, 'every day' = mỗi ngày",
+    "example_sentence": "I love learning new things every day because it makes me smarter."
+  },
+  {
+    "type": "essay",
+    "content": "Translate to Vietnamese: 'The weather is very cold today'",
+    "correct_answer": "Thời tiết hôm nay rất lạnh",
+    "explanation": "'weather' = thời tiết, 'very cold' = rất lạnh, 'today' = hôm nay",
+    "example_sentence": "The weather is very cold today, so I will wear a warm jacket."
+  }
+]

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Ứng dụng Quiz học tập với cơ chế xáo trộn thông minh, giúp bạn ôn luyện kiến thức hiệu quả.">
-  <title>Quiz App — Học tập thông minh</title>
+  <meta name="description" content="Ứng dụng Quiz học tập với AI chấm điểm, đa người dùng, hỗ trợ tự luận và trắc nghiệm.">
+  <title>QuizMaster — Học tập thông minh</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -18,15 +18,73 @@
         <span class="logo-icon">🧠</span>
         <h1>QuizMaster</h1>
       </div>
-      <p class="tagline">Học tập thông minh · Ghi nhớ lâu dài</p>
+      <div class="header-right">
+        <p class="tagline">Học tập thông minh · Ghi nhớ lâu dài</p>
+        <div class="user-info" id="user-info" style="display:none;">
+          <span class="user-name" id="user-display-name"></span>
+          <button class="btn btn-ghost btn-sm" id="btn-settings" title="Cài đặt">⚙️</button>
+          <button class="btn btn-ghost btn-sm" id="btn-logout" title="Đăng xuất">🚪</button>
+        </div>
+      </div>
     </div>
   </header>
 
   <!-- ========== MAIN CONTENT ========== -->
   <main class="container">
 
-    <!-- ===== SCREEN 1: HOME — Topic List ===== -->
-    <section id="screen-home" class="screen active">
+    <!-- ===== SCREEN: AUTH (Login / Register) ===== -->
+    <section id="screen-auth" class="screen active">
+      <div class="auth-container">
+        <div class="auth-card">
+          <div class="auth-logo">🧠</div>
+          <h2>Chào mừng đến QuizMaster</h2>
+          <p class="auth-subtitle">Đăng nhập hoặc tạo tài khoản mới để bắt đầu</p>
+
+          <!-- Login Tab / Register Tab -->
+          <div class="auth-tabs">
+            <button class="auth-tab active" id="tab-login">Đăng nhập</button>
+            <button class="auth-tab" id="tab-register">Đăng ký</button>
+          </div>
+
+          <!-- Login Form -->
+          <form id="form-login" class="auth-form">
+            <div class="form-group">
+              <label for="login-username">Tên đăng nhập</label>
+              <input type="text" id="login-username" placeholder="Nhập tên đăng nhập..." required>
+            </div>
+            <div class="form-group">
+              <label for="login-password">Mật khẩu</label>
+              <input type="password" id="login-password" placeholder="Nhập mật khẩu..." required>
+            </div>
+            <button type="submit" class="btn btn-accent btn-full btn-large">🔑 Đăng nhập</button>
+          </form>
+
+          <!-- Register Form -->
+          <form id="form-register" class="auth-form" style="display:none;">
+            <div class="form-group">
+              <label for="reg-display-name">Tên hiển thị <span class="required">*</span></label>
+              <input type="text" id="reg-display-name" placeholder="Ví dụ: Nguyễn Văn A" required>
+            </div>
+            <div class="form-group">
+              <label for="reg-username">Tên đăng nhập <span class="required">*</span></label>
+              <input type="text" id="reg-username" placeholder="Ít nhất 3 ký tự..." required>
+            </div>
+            <div class="form-group">
+              <label for="reg-password">Mật khẩu <span class="required">*</span></label>
+              <input type="password" id="reg-password" placeholder="Ít nhất 4 ký tự..." required>
+            </div>
+            <button type="submit" class="btn btn-accent btn-full btn-large">✨ Tạo tài khoản</button>
+          </form>
+
+          <div class="auth-hint">
+            <p>💡 User mặc định: <strong>admin</strong> / <strong>admin</strong></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SCREEN: HOME — Topic List ===== -->
+    <section id="screen-home" class="screen">
       <div class="section-header">
         <h2>📚 Chủ đề của bạn</h2>
         <button class="btn btn-primary" id="btn-create-topic">
@@ -44,7 +102,7 @@
           <form id="form-create-topic">
             <div class="form-group">
               <label for="topic-name">Tên chủ đề <span class="required">*</span></label>
-              <input type="text" id="topic-name" placeholder="Ví dụ: Lịch sử Việt Nam" required>
+              <input type="text" id="topic-name" placeholder="Ví dụ: English Vocabulary" required>
             </div>
             <div class="form-group">
               <label for="topic-desc">Mô tả (tùy chọn)</label>
@@ -56,9 +114,7 @@
       </div>
 
       <!-- Topic Cards Grid -->
-      <div class="topic-grid" id="topic-grid">
-        <!-- Rendered by JS -->
-      </div>
+      <div class="topic-grid" id="topic-grid"></div>
 
       <div class="empty-state" id="empty-state" style="display:none;">
         <div class="empty-icon">📝</div>
@@ -67,11 +123,9 @@
       </div>
     </section>
 
-    <!-- ===== SCREEN 2: MANAGE QUESTIONS ===== -->
+    <!-- ===== SCREEN: MANAGE QUESTIONS ===== -->
     <section id="screen-manage" class="screen">
-      <button class="btn btn-ghost btn-back" id="btn-back-home">
-        ← Quay lại
-      </button>
+      <button class="btn btn-ghost btn-back" id="btn-back-home">← Quay lại</button>
 
       <div class="section-header">
         <div>
@@ -80,9 +134,33 @@
         </div>
         <div class="header-actions">
           <span class="badge" id="manage-question-count">0 câu hỏi</span>
+          <button class="btn btn-ghost btn-sm" id="btn-import-json" title="Import JSON">📥 Import</button>
+          <button class="btn btn-ghost btn-sm" id="btn-export-json" title="Export JSON">📤 Export</button>
           <button class="btn btn-primary" id="btn-add-question">
             <span class="btn-icon">＋</span> Thêm câu hỏi
           </button>
+        </div>
+      </div>
+
+      <!-- Import JSON Modal -->
+      <div class="modal-overlay" id="modal-import">
+        <div class="modal modal-wide">
+          <div class="modal-header">
+            <h3>📥 Import câu hỏi từ JSON</h3>
+            <button class="modal-close" id="modal-close-import">&times;</button>
+          </div>
+          <div class="form-group">
+            <label>Chọn file JSON hoặc paste nội dung vào ô bên dưới:</label>
+            <input type="file" id="import-file" accept=".json" class="file-input">
+          </div>
+          <div class="form-group">
+            <label for="import-json-text">Nội dung JSON:</label>
+            <textarea id="import-json-text" rows="12" placeholder='[{"type":"multiple_choice","content":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"A"},{"type":"essay","content":"...","correct_answer":"..."}]'></textarea>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-ghost" id="btn-cancel-import">Hủy</button>
+            <button class="btn btn-primary" id="btn-do-import">📥 Import</button>
+          </div>
         </div>
       </div>
 
@@ -91,57 +169,78 @@
         <h3 id="question-form-title">➕ Thêm câu hỏi mới</h3>
         <form id="form-question">
           <input type="hidden" id="edit-question-id">
+
+          <!-- Question Type Selector -->
+          <div class="form-group">
+            <label>Loại câu hỏi</label>
+            <div class="type-selector">
+              <label class="type-card active" data-type="multiple_choice">
+                <input type="radio" name="question_type" value="multiple_choice" checked>
+                <span class="type-icon">📋</span>
+                <span class="type-label">Trắc nghiệm</span>
+              </label>
+              <label class="type-card" data-type="essay">
+                <input type="radio" name="question_type" value="essay">
+                <span class="type-icon">✍️</span>
+                <span class="type-label">Tự luận</span>
+              </label>
+            </div>
+          </div>
+
           <div class="form-group">
             <label for="q-content">Nội dung câu hỏi <span class="required">*</span></label>
             <textarea id="q-content" rows="3" placeholder="Nhập nội dung câu hỏi..." required></textarea>
           </div>
-          <div class="options-grid">
-            <div class="form-group option-group">
-              <label for="q-option-a">
-                <span class="option-label label-a">A</span> Phương án A
-              </label>
-              <input type="text" id="q-option-a" placeholder="Nhập phương án A..." required>
+
+          <!-- Multiple Choice Fields -->
+          <div id="mc-fields">
+            <div class="options-grid">
+              <div class="form-group option-group">
+                <label for="q-option-a"><span class="option-label label-a">A</span> Phương án A</label>
+                <input type="text" id="q-option-a" placeholder="Nhập phương án A...">
+              </div>
+              <div class="form-group option-group">
+                <label for="q-option-b"><span class="option-label label-b">B</span> Phương án B</label>
+                <input type="text" id="q-option-b" placeholder="Nhập phương án B...">
+              </div>
+              <div class="form-group option-group">
+                <label for="q-option-c"><span class="option-label label-c">C</span> Phương án C</label>
+                <input type="text" id="q-option-c" placeholder="Nhập phương án C...">
+              </div>
+              <div class="form-group option-group">
+                <label for="q-option-d"><span class="option-label label-d">D</span> Phương án D</label>
+                <input type="text" id="q-option-d" placeholder="Nhập phương án D...">
+              </div>
             </div>
-            <div class="form-group option-group">
-              <label for="q-option-b">
-                <span class="option-label label-b">B</span> Phương án B
-              </label>
-              <input type="text" id="q-option-b" placeholder="Nhập phương án B..." required>
+            <div class="form-group">
+              <label>Đáp án đúng <span class="required">*</span></label>
+              <div class="correct-answer-selector">
+                <label class="radio-card"><input type="radio" name="correct_answer" value="A"><span class="radio-label label-a">A</span></label>
+                <label class="radio-card"><input type="radio" name="correct_answer" value="B"><span class="radio-label label-b">B</span></label>
+                <label class="radio-card"><input type="radio" name="correct_answer" value="C"><span class="radio-label label-c">C</span></label>
+                <label class="radio-card"><input type="radio" name="correct_answer" value="D"><span class="radio-label label-d">D</span></label>
+              </div>
             </div>
-            <div class="form-group option-group">
-              <label for="q-option-c">
-                <span class="option-label label-c">C</span> Phương án C
-              </label>
-              <input type="text" id="q-option-c" placeholder="Nhập phương án C..." required>
+          </div>
+
+          <!-- Essay Fields -->
+          <div id="essay-fields" style="display:none;">
+            <div class="form-group">
+              <label for="q-essay-answer">Đáp án mẫu <span class="required">*</span></label>
+              <textarea id="q-essay-answer" rows="2" placeholder="Nhập đáp án mẫu (ví dụ: bản dịch tiếng Việt)..."></textarea>
             </div>
-            <div class="form-group option-group">
-              <label for="q-option-d">
-                <span class="option-label label-d">D</span> Phương án D
-              </label>
-              <input type="text" id="q-option-d" placeholder="Nhập phương án D..." required>
-            </div>
+          </div>
+
+          <!-- Shared: Explanation & Example -->
+          <div class="form-group">
+            <label for="q-explanation">Giải thích (tùy chọn)</label>
+            <textarea id="q-explanation" rows="2" placeholder="Giải thích ngắn gọn đáp án..."></textarea>
           </div>
           <div class="form-group">
-            <label for="q-correct">Đáp án đúng <span class="required">*</span></label>
-            <div class="correct-answer-selector">
-              <label class="radio-card">
-                <input type="radio" name="correct_answer" value="A" required>
-                <span class="radio-label label-a">A</span>
-              </label>
-              <label class="radio-card">
-                <input type="radio" name="correct_answer" value="B">
-                <span class="radio-label label-b">B</span>
-              </label>
-              <label class="radio-card">
-                <input type="radio" name="correct_answer" value="C">
-                <span class="radio-label label-c">C</span>
-              </label>
-              <label class="radio-card">
-                <input type="radio" name="correct_answer" value="D">
-                <span class="radio-label label-d">D</span>
-              </label>
-            </div>
+            <label for="q-example">Câu ví dụ bằng tiếng Anh (tùy chọn)</label>
+            <input type="text" id="q-example" placeholder="Ví dụ: The cat is sleeping on the sofa.">
           </div>
+
           <div class="form-actions">
             <button type="button" class="btn btn-ghost" id="btn-cancel-question">Hủy</button>
             <button type="submit" class="btn btn-primary" id="btn-save-question">Lưu câu hỏi</button>
@@ -150,25 +249,21 @@
       </div>
 
       <!-- Questions List -->
-      <div class="questions-list" id="questions-list">
-        <!-- Rendered by JS -->
-      </div>
+      <div class="questions-list" id="questions-list"></div>
 
       <div class="empty-state" id="empty-questions" style="display:none;">
         <div class="empty-icon">❓</div>
         <h3>Chưa có câu hỏi nào</h3>
-        <p>Thêm câu hỏi để bắt đầu tạo bộ quiz!</p>
+        <p>Thêm câu hỏi hoặc import từ file JSON!</p>
       </div>
 
       <!-- Start Quiz Button -->
       <div class="start-quiz-bar" id="start-quiz-bar" style="display:none;">
-        <button class="btn btn-accent btn-large" id="btn-start-quiz">
-          🚀 Bắt đầu làm Quiz
-        </button>
+        <button class="btn btn-accent btn-large" id="btn-start-quiz">🚀 Bắt đầu làm Quiz</button>
       </div>
     </section>
 
-    <!-- ===== SCREEN 3: QUIZ ===== -->
+    <!-- ===== SCREEN: QUIZ ===== -->
     <section id="screen-quiz" class="screen">
       <div class="quiz-header">
         <div class="quiz-info">
@@ -182,7 +277,6 @@
         <button class="btn btn-ghost btn-sm" id="btn-quit-quiz">✕ Thoát</button>
       </div>
 
-      <!-- Progress Bar -->
       <div class="progress-bar-container">
         <div class="progress-bar" id="quiz-progress-bar"></div>
       </div>
@@ -190,23 +284,49 @@
       <!-- Quiz Question Card -->
       <div class="quiz-card" id="quiz-card">
         <div class="question-number" id="quiz-question-number">Câu 1</div>
-        <div class="question-content" id="quiz-question-content">
-          <!-- Question text rendered here -->
+        <div class="question-content" id="quiz-question-content"></div>
+
+        <!-- Multiple Choice Options -->
+        <div class="quiz-options" id="quiz-options"></div>
+
+        <!-- Essay Input -->
+        <div class="essay-input-area" id="essay-input-area" style="display:none;">
+          <div class="form-group">
+            <label for="essay-answer-input">✍️ Nhập câu trả lời của bạn:</label>
+            <textarea id="essay-answer-input" rows="3" placeholder="Nhập đáp án của bạn..."></textarea>
+          </div>
+          <button class="btn btn-primary" id="btn-submit-essay">📤 Gửi đáp án</button>
         </div>
-        <div class="quiz-options" id="quiz-options">
-          <!-- Options rendered here -->
+
+        <!-- AI Grading Result -->
+        <div class="ai-result" id="ai-result" style="display:none;">
+          <div class="ai-result-header" id="ai-result-header"></div>
+          <div class="ai-result-score" id="ai-result-score"></div>
+          <div class="ai-result-feedback" id="ai-result-feedback"></div>
+          <div class="ai-result-explanation" id="ai-result-explanation"></div>
+          <div class="ai-result-example" id="ai-result-example"></div>
+        </div>
+
+        <!-- Explanation (for MC too) -->
+        <div class="question-explanation" id="question-explanation" style="display:none;">
+          <div class="explanation-content" id="explanation-content"></div>
+          <div class="example-sentence" id="example-sentence"></div>
         </div>
       </div>
 
-      <!-- Next Button (shown after answering) -->
+      <!-- Next Button -->
       <div class="quiz-actions" id="quiz-actions" style="display:none;">
-        <button class="btn btn-primary btn-large" id="btn-next-question">
-          Câu tiếp theo →
-        </button>
+        <button class="btn btn-primary btn-large" id="btn-next-question">Câu tiếp theo →</button>
+      </div>
+
+      <!-- Loading (AI grading) -->
+      <div class="ai-loading" id="ai-loading" style="display:none;">
+        <div class="spinner"></div>
+        <p>🤖 AI đang chấm điểm...</p>
       </div>
     </section>
 
-    <!-- ===== SCREEN 4: RESULTS ===== -->
+    <!-- ===== SCREEN: RESULTS ===== -->
     <section id="screen-results" class="screen">
       <div class="results-card">
         <div class="results-icon" id="results-icon">🎉</div>
@@ -241,12 +361,57 @@
         </div>
 
         <div class="results-actions">
-          <button class="btn btn-accent btn-large" id="btn-retry-quiz">
-            🔄 Làm lại (Xáo trộn mới)
-          </button>
-          <button class="btn btn-ghost" id="btn-back-to-topic">
-            ← Quay lại chủ đề
-          </button>
+          <button class="btn btn-accent btn-large" id="btn-retry-quiz">🔄 Làm lại (Xáo trộn mới)</button>
+          <button class="btn btn-ghost" id="btn-back-to-topic">← Quay lại chủ đề</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SCREEN: SETTINGS ===== -->
+    <section id="screen-settings" class="screen">
+      <button class="btn btn-ghost btn-back" id="btn-back-from-settings">← Quay lại</button>
+
+      <h2>⚙️ Cài đặt</h2>
+
+      <div class="card settings-card">
+        <h3>🤖 AI Chấm điểm (Google Gemini)</h3>
+        <p class="settings-desc">Để AI chấm điểm câu tự luận, bạn cần nhập API key miễn phí từ Google AI Studio.</p>
+        <div class="form-group">
+          <label for="gemini-api-key">Gemini API Key</label>
+          <input type="password" id="gemini-api-key" placeholder="Paste API key vào đây...">
+        </div>
+        <div class="form-actions">
+          <a href="https://aistudio.google.com/apikey" target="_blank" class="btn btn-ghost">🔗 Lấy API Key miễn phí</a>
+          <button class="btn btn-primary" id="btn-save-api-key">💾 Lưu API Key</button>
+        </div>
+        <p class="settings-hint" id="api-key-status"></p>
+      </div>
+
+      <div class="card settings-card">
+        <h3>📥 Thêm câu hỏi nhanh qua file JSON</h3>
+        <p class="settings-desc">Bạn có thể mở file <code>sample_questions.json</code> trong thư mục <code>c:\Quiz</code>, chỉnh sửa nội dung câu hỏi, rồi import vào chủ đề bất kỳ.</p>
+        <div class="json-format-guide">
+          <h4>Cấu trúc file JSON:</h4>
+          <pre><code>[
+  {
+    "type": "multiple_choice",
+    "content": "What is 'cat'?",
+    "option_a": "Con mèo",
+    "option_b": "Con chó",
+    "option_c": "Con gà",
+    "option_d": "Con vịt",
+    "correct_answer": "A",
+    "explanation": "Cat = con mèo",
+    "example_sentence": "The cat is sleeping."
+  },
+  {
+    "type": "essay",
+    "content": "Translate: I love you",
+    "correct_answer": "Tôi yêu bạn",
+    "explanation": "love = yêu",
+    "example_sentence": "I love my family."
+  }
+]</code></pre>
         </div>
       </div>
     </section>
