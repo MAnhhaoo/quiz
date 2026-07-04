@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Ứng dụng Quiz học tập với cơ chế xáo trộn thông minh, giúp bạn ôn luyện kiến thức hiệu quả.">
+  <title>Quiz App — Học tập thông minh</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <!-- ========== HEADER ========== -->
+  <header class="app-header">
+    <div class="header-content">
+      <div class="logo" id="btn-home">
+        <span class="logo-icon">🧠</span>
+        <h1>QuizMaster</h1>
+      </div>
+      <p class="tagline">Học tập thông minh · Ghi nhớ lâu dài</p>
+    </div>
+  </header>
+
+  <!-- ========== MAIN CONTENT ========== -->
+  <main class="container">
+
+    <!-- ===== SCREEN 1: HOME — Topic List ===== -->
+    <section id="screen-home" class="screen active">
+      <div class="section-header">
+        <h2>📚 Chủ đề của bạn</h2>
+        <button class="btn btn-primary" id="btn-create-topic">
+          <span class="btn-icon">＋</span> Tạo chủ đề mới
+        </button>
+      </div>
+
+      <!-- Create Topic Modal -->
+      <div class="modal-overlay" id="modal-create-topic">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>✨ Tạo chủ đề mới</h3>
+            <button class="modal-close" id="modal-close-topic">&times;</button>
+          </div>
+          <form id="form-create-topic">
+            <div class="form-group">
+              <label for="topic-name">Tên chủ đề <span class="required">*</span></label>
+              <input type="text" id="topic-name" placeholder="Ví dụ: Lịch sử Việt Nam" required>
+            </div>
+            <div class="form-group">
+              <label for="topic-desc">Mô tả (tùy chọn)</label>
+              <textarea id="topic-desc" rows="3" placeholder="Mô tả ngắn gọn về chủ đề..."></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Tạo chủ đề</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Topic Cards Grid -->
+      <div class="topic-grid" id="topic-grid">
+        <!-- Rendered by JS -->
+      </div>
+
+      <div class="empty-state" id="empty-state" style="display:none;">
+        <div class="empty-icon">📝</div>
+        <h3>Chưa có chủ đề nào</h3>
+        <p>Bắt đầu bằng cách tạo chủ đề đầu tiên của bạn!</p>
+      </div>
+    </section>
+
+    <!-- ===== SCREEN 2: MANAGE QUESTIONS ===== -->
+    <section id="screen-manage" class="screen">
+      <button class="btn btn-ghost btn-back" id="btn-back-home">
+        ← Quay lại
+      </button>
+
+      <div class="section-header">
+        <div>
+          <h2 id="manage-topic-name">Chủ đề</h2>
+          <p class="subtitle" id="manage-topic-desc"></p>
+        </div>
+        <div class="header-actions">
+          <span class="badge" id="manage-question-count">0 câu hỏi</span>
+          <button class="btn btn-primary" id="btn-add-question">
+            <span class="btn-icon">＋</span> Thêm câu hỏi
+          </button>
+        </div>
+      </div>
+
+      <!-- Add/Edit Question Form -->
+      <div class="card question-form-card" id="question-form-card" style="display:none;">
+        <h3 id="question-form-title">➕ Thêm câu hỏi mới</h3>
+        <form id="form-question">
+          <input type="hidden" id="edit-question-id">
+          <div class="form-group">
+            <label for="q-content">Nội dung câu hỏi <span class="required">*</span></label>
+            <textarea id="q-content" rows="3" placeholder="Nhập nội dung câu hỏi..." required></textarea>
+          </div>
+          <div class="options-grid">
+            <div class="form-group option-group">
+              <label for="q-option-a">
+                <span class="option-label label-a">A</span> Phương án A
+              </label>
+              <input type="text" id="q-option-a" placeholder="Nhập phương án A..." required>
+            </div>
+            <div class="form-group option-group">
+              <label for="q-option-b">
+                <span class="option-label label-b">B</span> Phương án B
+              </label>
+              <input type="text" id="q-option-b" placeholder="Nhập phương án B..." required>
+            </div>
+            <div class="form-group option-group">
+              <label for="q-option-c">
+                <span class="option-label label-c">C</span> Phương án C
+              </label>
+              <input type="text" id="q-option-c" placeholder="Nhập phương án C..." required>
+            </div>
+            <div class="form-group option-group">
+              <label for="q-option-d">
+                <span class="option-label label-d">D</span> Phương án D
+              </label>
+              <input type="text" id="q-option-d" placeholder="Nhập phương án D..." required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="q-correct">Đáp án đúng <span class="required">*</span></label>
+            <div class="correct-answer-selector">
+              <label class="radio-card">
+                <input type="radio" name="correct_answer" value="A" required>
+                <span class="radio-label label-a">A</span>
+              </label>
+              <label class="radio-card">
+                <input type="radio" name="correct_answer" value="B">
+                <span class="radio-label label-b">B</span>
+              </label>
+              <label class="radio-card">
+                <input type="radio" name="correct_answer" value="C">
+                <span class="radio-label label-c">C</span>
+              </label>
+              <label class="radio-card">
+                <input type="radio" name="correct_answer" value="D">
+                <span class="radio-label label-d">D</span>
+              </label>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-ghost" id="btn-cancel-question">Hủy</button>
+            <button type="submit" class="btn btn-primary" id="btn-save-question">Lưu câu hỏi</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Questions List -->
+      <div class="questions-list" id="questions-list">
+        <!-- Rendered by JS -->
+      </div>
+
+      <div class="empty-state" id="empty-questions" style="display:none;">
+        <div class="empty-icon">❓</div>
+        <h3>Chưa có câu hỏi nào</h3>
+        <p>Thêm câu hỏi để bắt đầu tạo bộ quiz!</p>
+      </div>
+
+      <!-- Start Quiz Button -->
+      <div class="start-quiz-bar" id="start-quiz-bar" style="display:none;">
+        <button class="btn btn-accent btn-large" id="btn-start-quiz">
+          🚀 Bắt đầu làm Quiz
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== SCREEN 3: QUIZ ===== -->
+    <section id="screen-quiz" class="screen">
+      <div class="quiz-header">
+        <div class="quiz-info">
+          <h2 id="quiz-topic-name">Quiz</h2>
+          <div class="quiz-meta">
+            <span id="quiz-round-label">Vòng 1</span>
+            <span class="separator">·</span>
+            <span id="quiz-progress-text">Câu 1/25</span>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="btn-quit-quiz">✕ Thoát</button>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="quiz-progress-bar"></div>
+      </div>
+
+      <!-- Quiz Question Card -->
+      <div class="quiz-card" id="quiz-card">
+        <div class="question-number" id="quiz-question-number">Câu 1</div>
+        <div class="question-content" id="quiz-question-content">
+          <!-- Question text rendered here -->
+        </div>
+        <div class="quiz-options" id="quiz-options">
+          <!-- Options rendered here -->
+        </div>
+      </div>
+
+      <!-- Next Button (shown after answering) -->
+      <div class="quiz-actions" id="quiz-actions" style="display:none;">
+        <button class="btn btn-primary btn-large" id="btn-next-question">
+          Câu tiếp theo →
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== SCREEN 4: RESULTS ===== -->
+    <section id="screen-results" class="screen">
+      <div class="results-card">
+        <div class="results-icon" id="results-icon">🎉</div>
+        <h2 id="results-title">Hoàn thành!</h2>
+        <p class="results-subtitle" id="results-subtitle">Bạn đã hoàn thành bộ quiz</p>
+
+        <div class="score-circle-container">
+          <div class="score-circle" id="score-circle">
+            <svg viewBox="0 0 120 120">
+              <circle class="score-bg" cx="60" cy="60" r="52"/>
+              <circle class="score-fill" cx="60" cy="60" r="52" id="score-fill-circle"/>
+            </svg>
+            <div class="score-text">
+              <span class="score-percent" id="score-percent">0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="results-stats">
+          <div class="stat-card stat-correct">
+            <div class="stat-number" id="stat-correct">0</div>
+            <div class="stat-label">Đúng ✅</div>
+          </div>
+          <div class="stat-card stat-wrong">
+            <div class="stat-number" id="stat-wrong">0</div>
+            <div class="stat-label">Sai ❌</div>
+          </div>
+          <div class="stat-card stat-total">
+            <div class="stat-number" id="stat-total">0</div>
+            <div class="stat-label">Tổng câu</div>
+          </div>
+        </div>
+
+        <div class="results-actions">
+          <button class="btn btn-accent btn-large" id="btn-retry-quiz">
+            🔄 Làm lại (Xáo trộn mới)
+          </button>
+          <button class="btn btn-ghost" id="btn-back-to-topic">
+            ← Quay lại chủ đề
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast Notifications -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
