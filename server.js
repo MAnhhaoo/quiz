@@ -59,7 +59,7 @@ app.use('/api', async (req, res, next) => {
     next();
   } catch (err) {
     console.error('Database init error:', err);
-    res.status(500).json({ error: 'Lỗi khởi tạo cơ sở dữ liệu' });
+    res.status(500).json({ error: 'Lỗi khởi tạo cơ sở dữ liệu: ' + (err.message || String(err)) });
   }
 });
 
