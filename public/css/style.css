@@ -1370,4 +1370,307 @@ textarea { resize: vertical; min-height: 60px; }
   .question-content { font-size: 1rem; }
   .type-selector { flex-direction: column; }
   .auth-card { padding: 1.5rem; }
+  .admin-users-table-wrap { overflow-x: auto; }
+  .admin-table { font-size: 0.8rem; }
+  .admin-table th, .admin-table td { padding: 0.5rem 0.4rem; }
+  .user-detail-info { grid-template-columns: 1fr; }
 }
+
+/* =============================================
+   AI REVIEW — User writes examples for AI feedback
+   ============================================= */
+
+.user-review-area {
+  margin-top: 1.25rem;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, rgba(127, 90, 240, 0.08) 0%, rgba(44, 182, 125, 0.06) 100%);
+  border: 1px solid rgba(127, 90, 240, 0.2);
+  border-radius: var(--radius-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.user-review-area::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gradient-primary);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.user-review-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.review-icon {
+  font-size: 1.2rem;
+}
+
+.user-review-area textarea {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(127, 90, 240, 0.2);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.75rem;
+  width: 100%;
+  resize: vertical;
+  transition: border-color var(--transition-fast);
+}
+
+.user-review-area textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(127, 90, 240, 0.15);
+}
+
+.user-review-area .btn {
+  margin-top: 0.5rem;
+}
+
+.ai-review-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(127, 90, 240, 0.08);
+  border-radius: var(--radius-sm);
+  color: var(--accent-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.spinner-small {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(127, 90, 240, 0.3);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.ai-review-result {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, rgba(44, 182, 125, 0.1) 0%, rgba(127, 90, 240, 0.08) 100%);
+  border: 1px solid rgba(44, 182, 125, 0.25);
+  border-radius: var(--radius-sm);
+  animation: fadeSlideUp 0.4s ease;
+}
+
+.ai-review-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-secondary);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ai-review-text {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* =============================================
+   ADMIN — User Management Screen
+   ============================================= */
+
+.admin-users-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.admin-table thead {
+  background: linear-gradient(135deg, rgba(127, 90, 240, 0.15) 0%, rgba(44, 182, 125, 0.08) 100%);
+}
+
+.admin-table th {
+  padding: 0.85rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+
+.admin-table td {
+  padding: 0.75rem 1rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  vertical-align: middle;
+}
+
+.admin-table tbody tr {
+  transition: background var(--transition-fast);
+}
+
+.admin-table tbody tr:hover {
+  background: rgba(127, 90, 240, 0.06);
+}
+
+.admin-table tbody tr.admin-row {
+  background: rgba(127, 90, 240, 0.04);
+}
+
+.admin-table tbody tr.admin-row:hover {
+  background: rgba(127, 90, 240, 0.1);
+}
+
+.badge-admin {
+  background: linear-gradient(135deg, var(--accent-primary), #e056a0) !important;
+  color: white !important;
+  font-size: 0.65rem !important;
+  padding: 0.15rem 0.5rem !important;
+  border-radius: 20px !important;
+  margin-left: 0.4rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.6rem;
+  background: rgba(127, 90, 240, 0.1);
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent-info);
+  white-space: nowrap;
+}
+
+/* ---- User Detail Modal ---- */
+
+.user-detail-content {
+  padding: 0.5rem 0;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.user-detail-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(127, 90, 240, 0.05);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  margin-bottom: 1.25rem;
+}
+
+.user-detail-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.user-detail-stat .stat-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.user-detail-stat span:last-child {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.user-detail-section-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.user-detail-topic {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--transition-fast);
+}
+
+.user-detail-topic:hover {
+  border-color: var(--border-color-hover);
+}
+
+.user-detail-topic-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.user-detail-topic-header .topic-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.user-detail-topic .topic-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  font-style: italic;
+}
+
+.user-detail-questions {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.user-detail-question {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  font-size: 0.82rem;
+}
+
+.user-detail-question .q-idx {
+  color: var(--text-muted);
+  font-weight: 600;
+  min-width: 1.5rem;
+}
+
+.user-detail-question .q-content {
+  color: var(--text-secondary);
+  flex: 1;
+}
+

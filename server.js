@@ -733,7 +733,7 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks):
 {"is_correct": true or false, "score": 0 to 100, "feedback": "brief feedback in Vietnamese explaining why the answer is correct or what the student got wrong"}`;
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -786,6 +786,174 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks):
       ai_powered: false,
     });
   }
+});
+
+// =============================================
+// API — AI REVIEW (User writes example, AI reviews)
+// =============================================
+
+app.post('/api/ai/review', authMiddleware, async (req, res) => {
+  const { word, context, user_text } = req.body;
+
+  if (!user_text || !user_text.trim()) {
+    return res.status(400).json({ error: 'Vui lòng nhập ví dụ hoặc giải thích của bạn' });
+  }
+
+  // Get API key from settings
+  const setting = queryOne("SELECT value FROM settings WHERE key = 'gemini_api_key'");
+  const apiKey = setting ? setting.value : '';
+
+  if (!apiKey) {
+    return res.json({
+      review: '⚠️ Chưa cài đặt API Key. Vui lòng vào Cài đặt để nhập Gemini API Key để AI có thể nhận xét bài viết của bạn.',
+      ai_powered: false,
+    });
+  }
+
+  try {
+    const prompt = `You are a friendly and encouraging English language teacher. A student just answered a quiz question about the word/phrase: "${word || 'unknown'}".
+${context ? `Context of the question: ${context}` : ''}
+
+The student wrote the following example or explanation about this word/phrase:
+"${user_text}"
+
+Please review their writing and provide helpful feedback IN VIETNAMESE. Your review should:
+1. Comment on whether the example/explanation is correct and relevant
+2. Point out any grammar or spelling mistakes if any
+3. Suggest improvements if needed
+4. Be encouraging and constructive
+
+Keep your response concise (2-4 sentences). Do NOT grade or give a score — just provide a friendly review/comment.
+
+Respond ONLY with a valid JSON object (no markdown, no code blocks):
+{"review": "your review text in Vietnamese"}`;
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.5 }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('Gemini API error (review):', errText);
+      let errMsg = 'AI API lỗi';
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson.error && errJson.error.message) {
+          errMsg = errJson.error.message;
+        }
+      } catch (e) {}
+      throw new Error(errMsg);
+    }
+
+    const data = await response.json();
+    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    let aiResult;
+    try {
+      const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+      aiResult = JSON.parse(jsonMatch ? jsonMatch[0] : aiText);
+    } catch (e) {
+      aiResult = { review: aiText || 'Không thể phân tích phản hồi từ AI.' };
+    }
+
+    res.json({
+      review: aiResult.review || 'Không có nhận xét.',
+      ai_powered: true,
+    });
+  } catch (err) {
+    console.error('AI review error:', err.message);
+    res.json({
+      review: `⚠️ Lỗi kết nối AI: ${err.message}. (Vui lòng kiểm tra lại API Key trong Cài đặt)`,
+      ai_powered: false,
+    });
+  }
+});
+
+// =============================================
+// ADMIN MIDDLEWARE & API ROUTES
+// =============================================
+
+function adminMiddleware(req, res, next) {
+  // Admin is user with id = 1
+  if (!req.user || req.user.id !== 1) {
+    return res.status(403).json({ error: 'Bạn không có quyền truy cập chức năng này' });
+  }
+  next();
+}
+
+// GET all users (admin only)
+app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
+  const users = queryAll(`
+    SELECT u.id, u.username, u.display_name, u.created_at,
+           COUNT(DISTINCT t.id) as topic_count,
+           COUNT(DISTINCT q.id) as question_count
+    FROM users u
+    LEFT JOIN topics t ON t.user_id = u.id
+    LEFT JOIN questions q ON q.topic_id = t.id
+    GROUP BY u.id
+    ORDER BY u.created_at DESC
+  `);
+  res.json(users);
+});
+
+// GET user detail with topics and questions (admin only)
+app.get('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
+  const userId = Number(req.params.id);
+  const user = queryOne('SELECT id, username, display_name, created_at FROM users WHERE id = ?', [userId]);
+  if (!user) return res.status(404).json({ error: 'Không tìm thấy người dùng' });
+
+  const topics = queryAll(`
+    SELECT t.*, COUNT(q.id) as question_count
+    FROM topics t
+    LEFT JOIN questions q ON q.topic_id = t.id
+    WHERE t.user_id = ?
+    GROUP BY t.id
+    ORDER BY t.created_at DESC
+  `, [userId]);
+
+  // Get questions for each topic
+  const topicsWithQuestions = topics.map(t => {
+    const questions = queryAll('SELECT * FROM questions WHERE topic_id = ? ORDER BY created_at ASC', [t.id]);
+    return { ...t, questions };
+  });
+
+  res.json({
+    user,
+    topics: topicsWithQuestions,
+  });
+});
+
+// DELETE user (admin only, cannot delete self)
+app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
+  const userId = Number(req.params.id);
+
+  if (userId === 1) {
+    return res.status(400).json({ error: 'Không thể xóa tài khoản admin' });
+  }
+
+  const user = queryOne('SELECT id FROM users WHERE id = ?', [userId]);
+  if (!user) return res.status(404).json({ error: 'Không tìm thấy người dùng' });
+
+  // Delete all questions in user's topics
+  const userTopics = queryAll('SELECT id FROM topics WHERE user_id = ?', [userId]);
+  for (const t of userTopics) {
+    execute('DELETE FROM questions WHERE topic_id = ?', [t.id]);
+  }
+  // Delete user's topics
+  execute('DELETE FROM topics WHERE user_id = ?', [userId]);
+  // Delete user
+  execute('DELETE FROM users WHERE id = ?', [userId]);
+  saveDb();
+
+  res.json({ message: 'Đã xóa người dùng thành công' });
 });
 
 // =============================================

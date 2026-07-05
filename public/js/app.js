@@ -71,11 +71,19 @@ function showScreen(screenId) {
 function updateHeader() {
   const userInfo = document.getElementById('user-info');
   const userName = document.getElementById('user-display-name');
+  const adminBtn = document.getElementById('btn-admin-users');
   if (state.token && state.user) {
     userInfo.style.display = 'flex';
     userName.textContent = `👤 ${state.user.display_name}`;
+    // Show admin button only for admin (id = 1)
+    if (state.user.id === 1) {
+      adminBtn.style.display = 'inline-flex';
+    } else {
+      adminBtn.style.display = 'none';
+    }
   } else {
     userInfo.style.display = 'none';
+    adminBtn.style.display = 'none';
   }
 }
 
@@ -633,10 +641,17 @@ function renderQuizQuestion() {
   const actions = document.getElementById('quiz-actions');
   const aiLoading = document.getElementById('ai-loading');
 
+  const userReviewArea = document.getElementById('user-review-area');
+
   aiResult.style.display = 'none';
   explanationBox.style.display = 'none';
   actions.style.display = 'none';
   aiLoading.style.display = 'none';
+  userReviewArea.style.display = 'none';
+  document.getElementById('user-review-input').value = '';
+  document.getElementById('ai-review-result').style.display = 'none';
+  document.getElementById('ai-review-loading').style.display = 'none';
+  document.getElementById('btn-submit-review').style.display = 'inline-flex';
   state.quizAnswered = false;
 
   if (q.question_type === 'essay') {
@@ -680,7 +695,50 @@ function selectAnswer(label) {
   });
 
   showExplanationBox(q);
+  showUserReviewForm();
   showNextButton();
+}
+
+function showUserReviewForm() {
+  const area = document.getElementById('user-review-area');
+  area.style.display = 'block';
+  document.getElementById('user-review-input').value = '';
+  document.getElementById('ai-review-result').style.display = 'none';
+  document.getElementById('ai-review-loading').style.display = 'none';
+  document.getElementById('btn-submit-review').style.display = 'inline-flex';
+}
+
+async function submitUserReview() {
+  const input = document.getElementById('user-review-input');
+  const userText = input.value.trim();
+  if (!userText) {
+    showToast('Vui lòng nhập ví dụ hoặc giải thích của bạn!', 'error');
+    return;
+  }
+
+  const q = state.quizQuestions[state.quizCurrentIndex];
+  document.getElementById('btn-submit-review').style.display = 'none';
+  document.getElementById('ai-review-loading').style.display = 'flex';
+
+  try {
+    const res = await apiPost('/ai/review', {
+      word: q.content,
+      context: q.explanation || '',
+      user_text: userText,
+    });
+
+    document.getElementById('ai-review-loading').style.display = 'none';
+    const resultEl = document.getElementById('ai-review-result');
+    document.getElementById('ai-review-text').textContent = res.review;
+    resultEl.style.display = 'block';
+    resultEl.style.animation = 'none';
+    resultEl.offsetHeight;
+    resultEl.style.animation = 'fadeSlideUp 0.4s ease';
+  } catch (err) {
+    document.getElementById('ai-review-loading').style.display = 'none';
+    document.getElementById('btn-submit-review').style.display = 'inline-flex';
+    showToast('Lỗi: ' + err.message, 'error');
+  }
 }
 
 async function submitEssay() {
@@ -732,6 +790,7 @@ async function submitEssay() {
     } else exEl.style.display = 'none';
 
     aiResult.style.display = 'block';
+    showUserReviewForm();
     showNextButton();
   } catch (err) {
     document.getElementById('ai-loading').style.display = 'none';
@@ -860,6 +919,132 @@ async function saveSettings() {
 }
 
 // =============================================
+// ADMIN: USER MANAGEMENT
+// =============================================
+async function loadAdminUsers() {
+  showScreen('admin');
+  try {
+    const users = await apiGet('/admin/users');
+    const tbody = document.getElementById('admin-users-tbody');
+    const empty = document.getElementById('empty-admin-users');
+    const countBadge = document.getElementById('admin-user-count');
+
+    countBadge.textContent = `${users.length} người dùng`;
+
+    if (users.length === 0) {
+      tbody.innerHTML = '';
+      empty.style.display = 'block';
+      document.getElementById('admin-users-table').style.display = 'none';
+      return;
+    }
+
+    empty.style.display = 'none';
+    document.getElementById('admin-users-table').style.display = 'table';
+
+    tbody.innerHTML = users.map(u => {
+      const createdAt = u.created_at ? new Date(u.created_at).toLocaleDateString('vi-VN') : 'N/A';
+      const isAdmin = u.id === 1;
+      return `
+        <tr class="${isAdmin ? 'admin-row' : ''}">
+          <td>${u.id}</td>
+          <td>
+            ${escapeHtml(u.username)}
+            ${isAdmin ? '<span class="badge badge-admin">🔑 Admin</span>' : ''}
+          </td>
+          <td>${escapeHtml(u.display_name)}</td>
+          <td>${createdAt}</td>
+          <td><span class="stat-pill">📚 ${u.topic_count}</span></td>
+          <td><span class="stat-pill">❓ ${u.question_count}</span></td>
+          <td>
+            <button class="btn btn-ghost btn-sm" onclick="viewUserDetail(${u.id})" title="Xem chi tiết">🔍</button>
+            ${!isAdmin ? `<button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id}, '${escapeAttr(u.display_name)}')" title="Xóa">🗑️</button>` : ''}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function viewUserDetail(userId) {
+  try {
+    const data = await apiGet(`/admin/users/${userId}`);
+    const { user, topics } = data;
+
+    document.getElementById('user-detail-title').textContent = `👤 ${user.display_name}`;
+    const content = document.getElementById('user-detail-content');
+
+    const createdAt = user.created_at ? new Date(user.created_at).toLocaleDateString('vi-VN', {
+      year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    }) : 'N/A';
+
+    const totalQuestions = topics.reduce((sum, t) => sum + (t.questions ? t.questions.length : 0), 0);
+
+    let html = `
+      <div class="user-detail-info">
+        <div class="user-detail-stat"><span class="stat-label">👤 Username:</span> <span>${escapeHtml(user.username)}</span></div>
+        <div class="user-detail-stat"><span class="stat-label">📛 Tên hiển thị:</span> <span>${escapeHtml(user.display_name)}</span></div>
+        <div class="user-detail-stat"><span class="stat-label">📅 Ngày tạo:</span> <span>${createdAt}</span></div>
+        <div class="user-detail-stat"><span class="stat-label">📚 Chủ đề:</span> <span>${topics.length}</span></div>
+        <div class="user-detail-stat"><span class="stat-label">❓ Câu hỏi:</span> <span>${totalQuestions}</span></div>
+      </div>
+    `;
+
+    if (topics.length > 0) {
+      html += '<h4 class="user-detail-section-title">📚 Danh sách chủ đề</h4>';
+      html += topics.map(t => {
+        const qList = t.questions && t.questions.length > 0
+          ? t.questions.map((q, idx) => {
+              const qType = q.question_type || 'multiple_choice';
+              const typeLabel = qType === 'essay' ? '✍️ Tự luận' : '📋 Trắc nghiệm';
+              return `<div class="user-detail-question">
+                <span class="q-idx">${idx + 1}.</span>
+                <span class="q-content">${escapeHtml(q.content)}</span>
+                <span class="badge" style="font-size:0.65rem;padding:0.1rem 0.4rem;">${typeLabel}</span>
+              </div>`;
+            }).join('')
+          : '<p style="color:var(--text-muted);font-style:italic;margin:0.5rem 0;">Chưa có câu hỏi</p>';
+
+        return `
+          <div class="user-detail-topic">
+            <div class="user-detail-topic-header">
+              <span class="topic-name">📖 ${escapeHtml(t.name)}</span>
+              <span class="badge">${t.question_count} câu</span>
+            </div>
+            ${t.description ? `<p class="topic-desc">${escapeHtml(t.description)}</p>` : ''}
+            <div class="user-detail-questions">${qList}</div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      html += '<p style="color:var(--text-muted);text-align:center;margin-top:1rem;">Người dùng chưa tạo chủ đề nào</p>';
+    }
+
+    content.innerHTML = html;
+    openModal('modal-user-detail');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function deleteUser(userId, displayName) {
+  const confirmed = await showConfirm(
+    '🗑️ Xóa người dùng?',
+    `Bạn có chắc muốn xóa người dùng "${displayName}"? Tất cả chủ đề và câu hỏi của họ sẽ bị xóa vĩnh viễn.`
+  );
+  if (!confirmed) return;
+
+  try {
+    await apiDelete(`/admin/users/${userId}`);
+    showToast('Đã xóa người dùng!');
+    loadAdminUsers();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// =============================================
 // MODALS & UTILS
 // =============================================
 function openModal(id) { document.getElementById(id).classList.add('show'); }
@@ -954,6 +1139,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---- Settings Screen ----
   document.getElementById('btn-back-from-settings').addEventListener('click', () => { showScreen('home'); loadTopics(); });
   document.getElementById('btn-save-api-key').addEventListener('click', saveSettings);
+
+  // ---- Admin Screen ----
+  document.getElementById('btn-admin-users').addEventListener('click', loadAdminUsers);
+  document.getElementById('btn-back-from-admin').addEventListener('click', () => { showScreen('home'); loadTopics(); });
+  document.getElementById('modal-close-user-detail').addEventListener('click', () => closeModal('modal-user-detail'));
+  document.getElementById('modal-user-detail').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal('modal-user-detail'); });
+
+  // ---- AI Review ----
+  document.getElementById('btn-submit-review').addEventListener('click', submitUserReview);
 
   // ---- Initial Start ----
   initAuth();
