@@ -16,14 +16,20 @@ app.use(express.static(path.join(__dirname, 'public')));
 // =============================================
 // DATABASE SETUP (sql.js — pure JS SQLite)
 // =============================================
-const DB_PATH = path.join(__dirname, 'quiz.db');
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.NODE_ENV === 'production';
+const DB_PATH = isVercel ? path.join('/tmp', 'quiz.db') : path.join(__dirname, 'quiz.db');
 let db;
 
 // Save database to file
 function saveDb() {
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.writeFileSync(DB_PATH, buffer);
+  if (!db) return;
+  try {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(DB_PATH, buffer);
+  } catch (err) {
+    console.error('Lỗi lưu database:', err.message);
+  }
 }
 
 // Auto-save every 5 seconds if there are changes
@@ -38,6 +44,25 @@ setInterval(() => {
   }
 }, 5000);
 
+let dbInitPromise = null;
+function ensureDbInitialized() {
+  if (!dbInitPromise) {
+    dbInitPromise = initDatabase();
+  }
+  return dbInitPromise;
+}
+
+// Ensure database is ready before handling any API request
+app.use('/api', async (req, res, next) => {
+  try {
+    await ensureDbInitialized();
+    next();
+  } catch (err) {
+    console.error('Database init error:', err);
+    res.status(500).json({ error: 'Lỗi khởi tạo cơ sở dữ liệu' });
+  }
+});
+
 async function initDatabase() {
   const SQL = await initSqlJs();
 
@@ -45,7 +70,13 @@ async function initDatabase() {
   if (fs.existsSync(DB_PATH)) {
     const fileBuffer = fs.readFileSync(DB_PATH);
     db = new SQL.Database(fileBuffer);
-    console.log('✅ Đã tải database từ file quiz.db');
+    console.log(`✅ Đã tải database từ file ${DB_PATH}`);
+  } else if (isVercel && fs.existsSync(path.join(__dirname, 'quiz.db'))) {
+    // In Vercel serverless, read original bundled quiz.db and copy to /tmp
+    const fileBuffer = fs.readFileSync(path.join(__dirname, 'quiz.db'));
+    db = new SQL.Database(fileBuffer);
+    console.log('✅ Đã tải database gốc từ quiz.db vào /tmp');
+    saveDb();
   } else {
     db = new SQL.Database();
     console.log('✅ Đã tạo database mới');
@@ -768,7 +799,7 @@ app.get('*', (req, res) => {
 // START SERVER
 // =============================================
 async function start() {
-  await initDatabase();
+  await ensureDbInitialized();
 
   app.listen(PORT, () => {
     console.log(`\n🚀 Quiz App đang chạy tại: http://localhost:${PORT}`);
@@ -789,7 +820,11 @@ async function start() {
   });
 }
 
-start().catch(err => {
-  console.error('❌ Lỗi khởi động:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  start().catch(err => {
+    console.error('❌ Lỗi khởi động:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = app;
