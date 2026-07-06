@@ -29,8 +29,8 @@ async function saveDb() {
     const buffer = Buffer.from(data);
     fs.writeFileSync(DB_PATH, buffer);
 
-    // Đồng bộ lên Vercel Blob nếu có cấu hình token
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
+    // Đồng bộ lên Vercel Blob nếu có cấu hình token hoặc OIDC Store ID
+    if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL) {
       await put('quiz.db', buffer, { access: 'public', allowOverwrite: true, addRandomSuffix: false });
       console.log('☁️ Đã đồng bộ database lên Vercel Blob');
     } else if (isVercel) {
@@ -77,7 +77,7 @@ async function initDatabase() {
   let loadedFromBlob = false;
 
   // 1. Kiểm tra và khôi phục từ Vercel Blob (Ưu tiên số 1 trên cloud)
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL) {
     try {
       console.log('☁️ Đang kiểm tra database trên Vercel Blob...');
       const { blobs } = await list();
@@ -346,7 +346,7 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 app.get('/api/status', (req, res) => {
   res.json({
     isVercel,
-    hasBlobToken: !!process.env.BLOB_READ_WRITE_TOKEN,
+    hasBlobToken: !!(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL),
     dbPath: DB_PATH
   });
 });
