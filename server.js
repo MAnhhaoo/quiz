@@ -80,8 +80,9 @@ async function initDatabase() {
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     try {
       console.log('☁️ Đang kiểm tra database trên Vercel Blob...');
-      const { blobs } = await list({ prefix: 'quiz.db' });
-      const dbBlob = blobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
+      const { blobs } = await list();
+      const dbBlobs = blobs.filter(b => b.pathname.includes('quiz.db'));
+      const dbBlob = dbBlobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
       if (dbBlob) {
         console.log(`☁️ Đã tìm thấy bản sao trên cloud (${dbBlob.url}), đang tải về...`);
         const res = await fetch(dbBlob.url, { cache: 'no-store' });
@@ -339,6 +340,15 @@ app.post('/api/auth/login', (req, res) => {
 // GET current user
 app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json(req.user);
+});
+
+// GET system status (check if Vercel Blob is configured)
+app.get('/api/status', (req, res) => {
+  res.json({
+    isVercel,
+    hasBlobToken: !!process.env.BLOB_READ_WRITE_TOKEN,
+    dbPath: DB_PATH
+  });
 });
 
 // =============================================

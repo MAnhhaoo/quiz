@@ -92,11 +92,27 @@ function updateHeader() {
 }
 
 function initAuth() {
+  checkVercelStatus();
   if (state.token && state.user) {
     showScreen('home');
     loadTopics();
   } else {
     showScreen('auth');
+  }
+}
+
+async function checkVercelStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    const banner = document.getElementById('vercel-warning-banner');
+    if (banner && data.isVercel && !data.hasBlobToken) {
+      banner.style.display = 'block';
+    } else if (banner) {
+      banner.style.display = 'none';
+    }
+  } catch (err) {
+    console.error('Lỗi kiểm tra trạng thái Vercel:', err);
   }
 }
 
