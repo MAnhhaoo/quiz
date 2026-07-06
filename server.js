@@ -66,14 +66,22 @@ function ensureDbInitialized() {
 async function syncFromBlobIfNewer() {
   if (!isVercel || !(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL)) return;
   try {
-    const { blobs } = await list();
+    const { blobs } = await list({ prefix: 'quiz.db', limit: 10 });
     const dbBlobs = blobs.filter(b => b.pathname.includes('quiz.db'));
     const dbBlob = dbBlobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
     if (dbBlob && dbBlob.uploadedAt) {
       const blobTime = new Date(dbBlob.uploadedAt).getTime();
       if (blobTime > lastBlobUploadedAt) {
         console.log(`☁️ Phát hiện database mới trên cloud (${dbBlob.uploadedAt}), đang đồng bộ về container...`);
-        const res = await fetch(`${dbBlob.url}?t=${Date.now()}`, { cache: 'no-store' });
+        const fetchUrl = `${dbBlob.downloadUrl || dbBlob.url}?t=${Date.now()}`;
+        const res = await fetch(fetchUrl, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
         if (res.ok) {
           const arrayBuffer = await res.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
@@ -110,13 +118,21 @@ async function initDatabase() {
   if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL) {
     try {
       console.log('☁️ Đang kiểm tra database trên Vercel Blob...');
-      const { blobs } = await list();
+      const { blobs } = await list({ prefix: 'quiz.db', limit: 10 });
       const dbBlobs = blobs.filter(b => b.pathname.includes('quiz.db'));
       const dbBlob = dbBlobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
       if (dbBlob) {
         console.log(`☁️ Đã tìm thấy bản sao trên cloud (${dbBlob.url}), đang tải về...`);
-        // Thêm tham số timestamp ?t=Date.now() để tránh bị Vercel Edge CDN cache trả về file db cũ
-        const res = await fetch(`${dbBlob.url}?t=${Date.now()}`, { cache: 'no-store' });
+        // Thêm tham số timestamp ?t=Date.now() và header chống cache tuyệt đối
+        const fetchUrl = `${dbBlob.downloadUrl || dbBlob.url}?t=${Date.now()}`;
+        const res = await fetch(fetchUrl, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
         if (res.ok) {
           const arrayBuffer = await res.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
@@ -125,6 +141,8 @@ async function initDatabase() {
           loadedFromBlob = true;
           lastBlobUploadedAt = new Date(dbBlob.uploadedAt).getTime();
           console.log('✅ Đã khôi phục database thành công từ Vercel Blob!');
+        } else {
+          console.error(`⚠️ Tải từ Blob thất bại: HTTP ${res.status}`);
         }
       } else {
         console.log('☁️ Chưa có database trên Vercel Blob (lần chạy đầu tiên).');
@@ -144,12 +162,10 @@ async function initDatabase() {
       // In Vercel serverless, read original bundled quiz.db and copy to /tmp
       const fileBuffer = fs.readFileSync(path.join(__dirname, 'quiz.db'));
       db = new SQL.Database(fileBuffer);
-      console.log('✅ Đã tải database gốc từ quiz.db vào /tmp');
-      await saveDb();
+      console.log('✅ Đã tải database gốc từ quiz.db vào /tmp (Không ghi đè lên cloud)');
     } else {
       db = new SQL.Database();
-      console.log('✅ Đã tạo database mới');
-      await saveDb();
+      console.log('✅ Đã tạo database mới (Không ghi đè lên cloud)');
     }
   }
 
@@ -375,11 +391,30 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 });
 
 // GET system status (check if Vercel Blob is configured)
-app.get('/api/status', (req, res) => {
+app.get('/api/status', async (req, res) => {
+  let blobStatus = { connected: false, dbExists: false, uploadedAt: null, size: null, url: null, error: null };
+  if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL) {
+    blobStatus.connected = true;
+    try {
+      const { blobs } = await list({ prefix: 'quiz.db', limit: 10 });
+      const dbBlob = blobs.filter(b => b.pathname.includes('quiz.db')).sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
+      if (dbBlob) {
+        blobStatus.dbExists = true;
+        blobStatus.uploadedAt = dbBlob.uploadedAt;
+        blobStatus.size = dbBlob.size;
+        blobStatus.url = dbBlob.url;
+      }
+    } catch (err) {
+      blobStatus.error = err.message || String(err);
+      console.error('Lỗi kiểm tra status blob:', err);
+    }
+  }
   res.json({
     isVercel,
-    hasBlobToken: !!(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL),
-    dbPath: DB_PATH
+    hasBlobToken: blobStatus.connected,
+    dbPath: DB_PATH,
+    blobStatus,
+    lastBlobUploadedAt: lastBlobUploadedAt ? new Date(lastBlobUploadedAt).toISOString() : null
   });
 });
 

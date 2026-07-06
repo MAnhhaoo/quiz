@@ -106,10 +106,17 @@ async function checkVercelStatus() {
     const res = await fetch('/api/status');
     const data = await res.json();
     const banner = document.getElementById('vercel-warning-banner');
-    if (banner && data.isVercel && !data.hasBlobToken) {
-      banner.style.display = 'block';
-    } else if (banner) {
-      banner.style.display = 'none';
+    if (banner) {
+      if (data.isVercel && !data.hasBlobToken) {
+        banner.style.display = 'block';
+      } else if (data.blobStatus && data.blobStatus.error) {
+        banner.innerHTML = `⚠️ <strong>LỖI KẾT NỐI VERCEL BLOB STORAGE:</strong> Không thể đồng bộ database trên đám mây.<br/>👉 <strong>Chi tiết lỗi:</strong> <code>${data.blobStatus.error}</code><br/>👉 Hãy kiểm tra lại kết nối Vercel Blob trong tab Storage trên Vercel Dashboard!`;
+        banner.style.display = 'block';
+        banner.style.background = '#fee2e2';
+        banner.style.color = '#991b1b';
+      } else {
+        banner.style.display = 'none';
+      }
     }
   } catch (err) {
     console.error('Lỗi kiểm tra trạng thái Vercel:', err);
