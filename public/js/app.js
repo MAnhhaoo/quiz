@@ -72,18 +72,22 @@ function updateHeader() {
   const userInfo = document.getElementById('user-info');
   const userName = document.getElementById('user-display-name');
   const adminBtn = document.getElementById('btn-admin-users');
+  const settingsBtn = document.getElementById('btn-settings');
   if (state.token && state.user) {
     userInfo.style.display = 'flex';
     userName.textContent = `👤 ${state.user.display_name}`;
-    // Show admin button only for admin (id = 1)
+    // Show admin button and settings button only for admin (id = 1)
     if (state.user.id === 1) {
       adminBtn.style.display = 'inline-flex';
+      settingsBtn.style.display = 'inline-flex';
     } else {
       adminBtn.style.display = 'none';
+      settingsBtn.style.display = 'none';
     }
   } else {
     userInfo.style.display = 'none';
     adminBtn.style.display = 'none';
+    settingsBtn.style.display = 'none';
   }
 }
 
@@ -898,6 +902,10 @@ async function retryQuiz() {
 // SCREEN: SETTINGS
 // =============================================
 async function openSettings() {
+  if (!state.user || state.user.id !== 1) {
+    showToast('Bạn không có quyền truy cập trang cài đặt!', 'error');
+    return;
+  }
   showScreen('settings');
   try {
     const res = await apiGet('/settings/gemini_api_key');
@@ -922,6 +930,10 @@ async function saveSettings() {
 // ADMIN: USER MANAGEMENT
 // =============================================
 async function loadAdminUsers() {
+  if (!state.user || state.user.id !== 1) {
+    showToast('Bạn không có quyền truy cập trang quản lý!', 'error');
+    return;
+  }
   showScreen('admin');
   try {
     const users = await apiGet('/admin/users');

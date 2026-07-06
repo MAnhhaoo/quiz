@@ -270,6 +270,15 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+// Admin middleware
+function adminMiddleware(req, res, next) {
+  // Admin is user with id = 1
+  if (!req.user || req.user.id !== 1) {
+    return res.status(403).json({ error: 'Bạn không có quyền truy cập chức năng này' });
+  }
+  next();
+}
+
 // =============================================
 // API ROUTES — AUTH
 // =============================================
@@ -335,12 +344,12 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 // API ROUTES — SETTINGS
 // =============================================
 
-app.get('/api/settings/:key', authMiddleware, (req, res) => {
+app.get('/api/settings/:key', authMiddleware, adminMiddleware, (req, res) => {
   const setting = queryOne('SELECT value FROM settings WHERE key = ?', [req.params.key]);
   res.json({ value: setting ? setting.value : '' });
 });
 
-app.put('/api/settings/:key', authMiddleware, (req, res) => {
+app.put('/api/settings/:key', authMiddleware, adminMiddleware, (req, res) => {
   const { value } = req.body;
   const existing = queryOne('SELECT key FROM settings WHERE key = ?', [req.params.key]);
   if (existing) {
@@ -915,16 +924,8 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks):
 });
 
 // =============================================
-// ADMIN MIDDLEWARE & API ROUTES
+// ADMIN API ROUTES
 // =============================================
-
-function adminMiddleware(req, res, next) {
-  // Admin is user with id = 1
-  if (!req.user || req.user.id !== 1) {
-    return res.status(403).json({ error: 'Bạn không có quyền truy cập chức năng này' });
-  }
-  next();
-}
 
 // GET all users (admin only)
 app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
