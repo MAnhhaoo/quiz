@@ -7,8 +7,9 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@vercel/blob": "^2.5.0",
+    "cors": "^2.8.5",
     "express": "^4.21.0",
-    "sql.js": "^1.11.0",
-    "cors": "^2.8.5"
+    "sql.js": "^1.11.0"
   }
 }

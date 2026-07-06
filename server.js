@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { put, list } = require('@vercel/blob');
 
 const app = express();
 const PORT = 3000;
@@ -20,13 +21,20 @@ const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || 
 const DB_PATH = isVercel ? path.join('/tmp', 'quiz.db') : path.join(__dirname, 'quiz.db');
 let db;
 
-// Save database to file
+// Save database to file & Vercel Blob
 function saveDb() {
   if (!db) return;
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
     fs.writeFileSync(DB_PATH, buffer);
+
+    // Đồng bộ lên Vercel Blob nếu có cấu hình token
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      put('quiz.db', buffer, { access: 'public', allowOverwrite: true, addRandomSuffix: false })
+        .then(() => console.log('☁️ Đã đồng bộ database lên Vercel Blob'))
+        .catch(err => console.error('⚠️ Lỗi upload lên Vercel Blob:', err.message));
+    }
   } catch (err) {
     console.error('Lỗi lưu database:', err.message);
   }
@@ -65,21 +73,50 @@ app.use('/api', async (req, res, next) => {
 
 async function initDatabase() {
   const SQL = await initSqlJs();
+  let loadedFromBlob = false;
 
-  // Load existing database or create new one
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-    console.log(`✅ Đã tải database từ file ${DB_PATH}`);
-  } else if (isVercel && fs.existsSync(path.join(__dirname, 'quiz.db'))) {
-    // In Vercel serverless, read original bundled quiz.db and copy to /tmp
-    const fileBuffer = fs.readFileSync(path.join(__dirname, 'quiz.db'));
-    db = new SQL.Database(fileBuffer);
-    console.log('✅ Đã tải database gốc từ quiz.db vào /tmp');
-    saveDb();
-  } else {
-    db = new SQL.Database();
-    console.log('✅ Đã tạo database mới');
+  // 1. Kiểm tra và khôi phục từ Vercel Blob (Ưu tiên số 1 trên cloud)
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      console.log('☁️ Đang kiểm tra database trên Vercel Blob...');
+      const { blobs } = await list({ prefix: 'quiz.db' });
+      const dbBlob = blobs.find(b => b.pathname === 'quiz.db');
+      if (dbBlob) {
+        console.log(`☁️ Đã tìm thấy bản sao trên cloud (${dbBlob.url}), đang tải về...`);
+        const res = await fetch(dbBlob.url);
+        if (res.ok) {
+          const arrayBuffer = await res.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          db = new SQL.Database(buffer);
+          fs.writeFileSync(DB_PATH, buffer);
+          loadedFromBlob = true;
+          console.log('✅ Đã khôi phục database thành công từ Vercel Blob!');
+        }
+      } else {
+        console.log('☁️ Chưa có database trên Vercel Blob (lần chạy đầu tiên).');
+      }
+    } catch (err) {
+      console.error('⚠️ Lỗi khi kiểm tra/tải từ Vercel Blob:', err.message);
+    }
+  }
+
+  // 2. Nếu chưa tải được từ Blob (hoặc chạy local), dùng file local/gốc
+  if (!loadedFromBlob) {
+    if (fs.existsSync(DB_PATH)) {
+      const fileBuffer = fs.readFileSync(DB_PATH);
+      db = new SQL.Database(fileBuffer);
+      console.log(`✅ Đã tải database từ file ${DB_PATH}`);
+    } else if (isVercel && fs.existsSync(path.join(__dirname, 'quiz.db'))) {
+      // In Vercel serverless, read original bundled quiz.db and copy to /tmp
+      const fileBuffer = fs.readFileSync(path.join(__dirname, 'quiz.db'));
+      db = new SQL.Database(fileBuffer);
+      console.log('✅ Đã tải database gốc từ quiz.db vào /tmp');
+      saveDb();
+    } else {
+      db = new SQL.Database();
+      console.log('✅ Đã tạo database mới');
+      saveDb();
+    }
   }
 
   // Enable foreign keys
