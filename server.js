@@ -22,7 +22,7 @@ const DB_PATH = isVercel ? path.join('/tmp', 'quiz.db') : path.join(__dirname, '
 let db;
 
 // Save database to file & Vercel Blob
-function saveDb() {
+async function saveDb() {
   if (!db) return;
   try {
     const data = db.export();
@@ -31,9 +31,10 @@ function saveDb() {
 
     // Đồng bộ lên Vercel Blob nếu có cấu hình token
     if (process.env.BLOB_READ_WRITE_TOKEN) {
-      put('quiz.db', buffer, { access: 'public', allowOverwrite: true, addRandomSuffix: false })
-        .then(() => console.log('☁️ Đã đồng bộ database lên Vercel Blob'))
-        .catch(err => console.error('⚠️ Lỗi upload lên Vercel Blob:', err.message));
+      await put('quiz.db', buffer, { access: 'public', allowOverwrite: true, addRandomSuffix: false });
+      console.log('☁️ Đã đồng bộ database lên Vercel Blob');
+    } else if (isVercel) {
+      console.warn('⚠️ CẢNH BÁO: Đang chạy trên Vercel nhưng CHƯA kết nối Vercel Blob! Dữ liệu sẽ bị mất khi khởi động lại!');
     }
   } catch (err) {
     console.error('Lỗi lưu database:', err.message);
@@ -47,7 +48,7 @@ function markDirty() {
 }
 setInterval(() => {
   if (dbDirty) {
-    saveDb();
+    saveDb().catch(err => console.error(err));
     dbDirty = false;
   }
 }, 5000);
@@ -80,10 +81,10 @@ async function initDatabase() {
     try {
       console.log('☁️ Đang kiểm tra database trên Vercel Blob...');
       const { blobs } = await list({ prefix: 'quiz.db' });
-      const dbBlob = blobs.find(b => b.pathname === 'quiz.db');
+      const dbBlob = blobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
       if (dbBlob) {
         console.log(`☁️ Đã tìm thấy bản sao trên cloud (${dbBlob.url}), đang tải về...`);
-        const res = await fetch(dbBlob.url);
+        const res = await fetch(dbBlob.url, { cache: 'no-store' });
         if (res.ok) {
           const arrayBuffer = await res.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
@@ -111,11 +112,11 @@ async function initDatabase() {
       const fileBuffer = fs.readFileSync(path.join(__dirname, 'quiz.db'));
       db = new SQL.Database(fileBuffer);
       console.log('✅ Đã tải database gốc từ quiz.db vào /tmp');
-      saveDb();
+      await saveDb();
     } else {
       db = new SQL.Database();
       console.log('✅ Đã tạo database mới');
-      saveDb();
+      await saveDb();
     }
   }
 
@@ -194,7 +195,7 @@ async function initDatabase() {
   // Assign existing topics without user_id to default user
   execute('UPDATE topics SET user_id = 1 WHERE user_id IS NULL');
 
-  saveDb();
+  await saveDb();
   console.log('✅ Database đã sẵn sàng.');
 }
 
@@ -284,7 +285,7 @@ function adminMiddleware(req, res, next) {
 // =============================================
 
 // POST register
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { username, password, display_name } = req.body;
 
   if (!username || !username.trim() || username.trim().length < 3) {
@@ -307,7 +308,7 @@ app.post('/api/auth/register', (req, res) => {
     [username.trim().toLowerCase(), hash, display_name.trim()]);
   const id = lastInsertId();
   const token = generateToken(id);
-  saveDb();
+  await saveDb();
 
   res.status(201).json({
     token,
@@ -349,7 +350,7 @@ app.get('/api/settings/:key', authMiddleware, adminMiddleware, (req, res) => {
   res.json({ value: setting ? setting.value : '' });
 });
 
-app.put('/api/settings/:key', authMiddleware, adminMiddleware, (req, res) => {
+app.put('/api/settings/:key', authMiddleware, adminMiddleware, async (req, res) => {
   const { value } = req.body;
   const existing = queryOne('SELECT key FROM settings WHERE key = ?', [req.params.key]);
   if (existing) {
@@ -357,7 +358,7 @@ app.put('/api/settings/:key', authMiddleware, adminMiddleware, (req, res) => {
   } else {
     execute('INSERT INTO settings (key, value) VALUES (?, ?)', [req.params.key, value || '']);
   }
-  saveDb();
+  await saveDb();
   res.json({ success: true });
 });
 
@@ -386,7 +387,7 @@ app.get('/api/topics/:id', authMiddleware, (req, res) => {
 });
 
 // POST create topic
-app.post('/api/topics', authMiddleware, (req, res) => {
+app.post('/api/topics', authMiddleware, async (req, res) => {
   const { name, description } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Tên chủ đề không được để trống' });
@@ -394,12 +395,12 @@ app.post('/api/topics', authMiddleware, (req, res) => {
   execute('INSERT INTO topics (name, description, user_id) VALUES (?, ?, ?)', [name.trim(), description || '', req.user.id]);
   const id = lastInsertId();
   const topic = queryOne('SELECT * FROM topics WHERE id = ?', [id]);
-  saveDb();
+  await saveDb();
   res.status(201).json(topic);
 });
 
 // PUT update topic
-app.put('/api/topics/:id', authMiddleware, (req, res) => {
+app.put('/api/topics/:id', authMiddleware, async (req, res) => {
   const { name, description } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Tên chủ đề không được để trống' });
@@ -409,18 +410,18 @@ app.put('/api/topics/:id', authMiddleware, (req, res) => {
 
   execute('UPDATE topics SET name = ?, description = ? WHERE id = ?', [name.trim(), description || '', Number(req.params.id)]);
   const topic = queryOne('SELECT * FROM topics WHERE id = ?', [Number(req.params.id)]);
-  saveDb();
+  await saveDb();
   res.json(topic);
 });
 
 // DELETE topic
-app.delete('/api/topics/:id', authMiddleware, (req, res) => {
+app.delete('/api/topics/:id', authMiddleware, async (req, res) => {
   const existing = queryOne('SELECT id FROM topics WHERE id = ? AND user_id = ?', [Number(req.params.id), req.user.id]);
   if (!existing) return res.status(404).json({ error: 'Không tìm thấy chủ đề' });
 
   execute('DELETE FROM questions WHERE topic_id = ?', [Number(req.params.id)]);
   execute('DELETE FROM topics WHERE id = ?', [Number(req.params.id)]);
-  saveDb();
+  await saveDb();
   res.json({ message: 'Đã xóa chủ đề thành công' });
 });
 
@@ -439,7 +440,7 @@ app.get('/api/topics/:id/questions', authMiddleware, (req, res) => {
 });
 
 // POST add question to topic
-app.post('/api/topics/:id/questions', authMiddleware, (req, res) => {
+app.post('/api/topics/:id/questions', authMiddleware, async (req, res) => {
   const { content, option_a, option_b, option_c, option_d, correct_answer, question_type, explanation, example_sentence } = req.body;
   const qType = question_type || 'multiple_choice';
 
@@ -457,7 +458,7 @@ app.post('/api/topics/:id/questions', authMiddleware, (req, res) => {
     }
   } else if (qType === 'essay') {
     if (!correct_answer || !correct_answer.trim()) {
-      return res.status(400).json({ error: 'Đáp án mẫu không được để trống' });
+      return res.status(400).json({ error: 'Phải nhập đáp án mẫu cho câu tự luận' });
     }
   }
 
@@ -483,12 +484,12 @@ app.post('/api/topics/:id/questions', authMiddleware, (req, res) => {
   );
   const id = lastInsertId();
   const question = queryOne('SELECT * FROM questions WHERE id = ?', [id]);
-  saveDb();
+  await saveDb();
   res.status(201).json(question);
 });
 
 // PUT update question
-app.put('/api/questions/:id', authMiddleware, (req, res) => {
+app.put('/api/questions/:id', authMiddleware, async (req, res) => {
   const { content, option_a, option_b, option_c, option_d, correct_answer, question_type, explanation, example_sentence } = req.body;
   const qType = question_type || 'multiple_choice';
 
@@ -530,12 +531,12 @@ app.put('/api/questions/:id', authMiddleware, (req, res) => {
     ]
   );
   const question = queryOne('SELECT * FROM questions WHERE id = ?', [Number(req.params.id)]);
-  saveDb();
+  await saveDb();
   res.json(question);
 });
 
 // DELETE question
-app.delete('/api/questions/:id', authMiddleware, (req, res) => {
+app.delete('/api/questions/:id', authMiddleware, async (req, res) => {
   const existing = queryOne(`
     SELECT q.id FROM questions q
     JOIN topics t ON q.topic_id = t.id
@@ -553,7 +554,7 @@ app.delete('/api/questions/:id', authMiddleware, (req, res) => {
 // =============================================
 
 // POST import questions from JSON
-app.post('/api/topics/:id/import', authMiddleware, (req, res) => {
+app.post('/api/topics/:id/import', authMiddleware, async (req, res) => {
   const { questions } = req.body;
 
   if (!Array.isArray(questions) || questions.length === 0) {
@@ -613,7 +614,7 @@ app.post('/api/topics/:id/import', authMiddleware, (req, res) => {
     }
   }
 
-  saveDb();
+  await saveDb();
   res.json({
     message: `Đã import ${imported}/${questions.length} câu hỏi`,
     imported,
@@ -970,7 +971,7 @@ app.get('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
 });
 
 // DELETE user (admin only, cannot delete self)
-app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) => {
+app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
   const userId = Number(req.params.id);
 
   if (userId === 1) {
@@ -989,7 +990,7 @@ app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, (req, res) =
   execute('DELETE FROM topics WHERE user_id = ?', [userId]);
   // Delete user
   execute('DELETE FROM users WHERE id = ?', [userId]);
-  saveDb();
+  await saveDb();
 
   res.json({ message: 'Đã xóa người dùng thành công' });
 });
@@ -1015,14 +1016,16 @@ async function start() {
 
   process.on('SIGINT', () => {
     console.log('\n💾 Đang lưu database...');
-    saveDb();
-    console.log('👋 Tạm biệt!');
-    process.exit(0);
+    saveDb().finally(() => {
+      console.log('👋 Tạm biệt!');
+      process.exit(0);
+    });
   });
 
   process.on('SIGTERM', () => {
-    saveDb();
-    process.exit(0);
+    saveDb().finally(() => {
+      process.exit(0);
+    });
   });
 }
 
