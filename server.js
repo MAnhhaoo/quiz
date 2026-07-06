@@ -20,6 +20,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || !!process.env.VERCEL;
 const DB_PATH = isVercel ? path.join('/tmp', 'quiz.db') : path.join(__dirname, 'quiz.db');
 let db;
+let lastBlobUploadedAt = 0;
 
 // Save database to file & Vercel Blob
 async function saveDb() {
@@ -32,6 +33,7 @@ async function saveDb() {
     // Đồng bộ lên Vercel Blob nếu có cấu hình token hoặc OIDC Store ID
     if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL) {
       await put('quiz.db', buffer, { access: 'public', allowOverwrite: true, addRandomSuffix: false });
+      lastBlobUploadedAt = Date.now() + 5000; // Cập nhật mốc thời gian lưu mới nhất (cộng 5s buffer cho clock skew)
       console.log('☁️ Đã đồng bộ database lên Vercel Blob');
     } else if (isVercel) {
       console.warn('⚠️ CẢNH BÁO: Đang chạy trên Vercel nhưng CHƯA kết nối Vercel Blob! Dữ liệu sẽ bị mất khi khởi động lại!');
@@ -61,10 +63,38 @@ function ensureDbInitialized() {
   return dbInitPromise;
 }
 
+async function syncFromBlobIfNewer() {
+  if (!isVercel || !(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL)) return;
+  try {
+    const { blobs } = await list();
+    const dbBlobs = blobs.filter(b => b.pathname.includes('quiz.db'));
+    const dbBlob = dbBlobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
+    if (dbBlob && dbBlob.uploadedAt) {
+      const blobTime = new Date(dbBlob.uploadedAt).getTime();
+      if (blobTime > lastBlobUploadedAt) {
+        console.log(`☁️ Phát hiện database mới trên cloud (${dbBlob.uploadedAt}), đang đồng bộ về container...`);
+        const res = await fetch(`${dbBlob.url}?t=${Date.now()}`, { cache: 'no-store' });
+        if (res.ok) {
+          const arrayBuffer = await res.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const SQL = await initSqlJs();
+          db = new SQL.Database(buffer);
+          fs.writeFileSync(DB_PATH, buffer);
+          lastBlobUploadedAt = blobTime;
+          console.log('✅ Đã đồng bộ database mới nhất từ cloud!');
+        }
+      }
+    }
+  } catch (err) {
+    console.error('⚠️ Lỗi khi kiểm tra/đồng bộ từ Vercel Blob:', err.message);
+  }
+}
+
 // Ensure database is ready before handling any API request
 app.use('/api', async (req, res, next) => {
   try {
     await ensureDbInitialized();
+    await syncFromBlobIfNewer();
     next();
   } catch (err) {
     console.error('Database init error:', err);
@@ -93,6 +123,7 @@ async function initDatabase() {
           db = new SQL.Database(buffer);
           fs.writeFileSync(DB_PATH, buffer);
           loadedFromBlob = true;
+          lastBlobUploadedAt = new Date(dbBlob.uploadedAt).getTime();
           console.log('✅ Đã khôi phục database thành công từ Vercel Blob!');
         }
       } else {
