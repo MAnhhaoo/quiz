@@ -17,7 +17,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // =============================================
 // DATABASE SETUP (sql.js — pure JS SQLite)
 // =============================================
-const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.NODE_ENV === 'production';
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || !!process.env.VERCEL;
 const DB_PATH = isVercel ? path.join('/tmp', 'quiz.db') : path.join(__dirname, 'quiz.db');
 let db;
 
@@ -85,7 +85,8 @@ async function initDatabase() {
       const dbBlob = dbBlobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
       if (dbBlob) {
         console.log(`☁️ Đã tìm thấy bản sao trên cloud (${dbBlob.url}), đang tải về...`);
-        const res = await fetch(dbBlob.url, { cache: 'no-store' });
+        // Thêm tham số timestamp ?t=Date.now() để tránh bị Vercel Edge CDN cache trả về file db cũ
+        const res = await fetch(`${dbBlob.url}?t=${Date.now()}`, { cache: 'no-store' });
         if (res.ok) {
           const arrayBuffer = await res.arrayBuffer();
           const buffer = Buffer.from(arrayBuffer);
@@ -555,7 +556,7 @@ app.delete('/api/questions/:id', authMiddleware, async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Không tìm thấy câu hỏi' });
 
   execute('DELETE FROM questions WHERE id = ?', [Number(req.params.id)]);
-  saveDb();
+  await saveDb();
   res.json({ message: 'Đã xóa câu hỏi thành công' });
 });
 
