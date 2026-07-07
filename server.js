@@ -21,6 +21,7 @@ const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || 
 const DB_PATH = isVercel ? path.join('/tmp', 'quiz.db') : path.join(__dirname, 'quiz.db');
 let db;
 let lastBlobUploadedAt = 0;
+let currentDbHash = null;
 
 // Save database to file & Vercel Blob
 async function saveDb() {
@@ -29,12 +30,13 @@ async function saveDb() {
     const data = db.export();
     const buffer = Buffer.from(data);
     fs.writeFileSync(DB_PATH, buffer);
+    currentDbHash = crypto.createHash('md5').update(buffer).digest('hex');
 
     // Đồng bộ lên Vercel Blob nếu có cấu hình token hoặc OIDC Store ID
     if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID || process.env.VERCEL_BLOB_RETRIEVE_URL) {
       await put('quiz.db', buffer, { access: 'public', allowOverwrite: true, addRandomSuffix: false });
       lastBlobUploadedAt = Date.now() + 5000; // Cập nhật mốc thời gian lưu mới nhất (cộng 5s buffer cho clock skew)
-      console.log('☁️ Đã đồng bộ database lên Vercel Blob');
+      console.log(`☁️ Đã đồng bộ database lên Vercel Blob (MD5: ${currentDbHash})`);
     } else if (isVercel) {
       console.warn('⚠️ CẢNH BÁO: Đang chạy trên Vercel nhưng CHƯA kết nối Vercel Blob! Dữ liệu sẽ bị mất khi khởi động lại!');
     }
@@ -69,29 +71,29 @@ async function syncFromBlobIfNewer() {
     const { blobs } = await list({ prefix: 'quiz.db', limit: 10 });
     const dbBlobs = blobs.filter(b => b.pathname.includes('quiz.db'));
     const dbBlob = dbBlobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
-    if (dbBlob && dbBlob.uploadedAt) {
-      const blobTime = new Date(dbBlob.uploadedAt).getTime();
-      if (blobTime > lastBlobUploadedAt) {
-        console.log(`☁️ Phát hiện database mới trên cloud (${dbBlob.uploadedAt}), đang đồng bộ về container...`);
-        const baseUrl = dbBlob.url;
-        const separator = baseUrl.includes('?') ? '&' : '?';
-        const fetchUrl = `${baseUrl}${separator}t=${Date.now()}`;
-        const res = await fetch(fetchUrl, {
-          cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-          }
-        });
-        if (res.ok) {
-          const arrayBuffer = await res.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
+    if (dbBlob && dbBlob.url) {
+      const baseUrl = dbBlob.url;
+      const separator = baseUrl.includes('?') ? '&' : '?';
+      const fetchUrl = `${baseUrl}${separator}t=${Date.now()}`;
+      const res = await fetch(fetchUrl, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
+      if (res.ok) {
+        const arrayBuffer = await res.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const newHash = crypto.createHash('md5').update(buffer).digest('hex');
+        if (newHash !== currentDbHash) {
           const SQL = await initSqlJs();
           db = new SQL.Database(buffer);
           fs.writeFileSync(DB_PATH, buffer);
-          lastBlobUploadedAt = blobTime;
-          console.log('✅ Đã đồng bộ database mới nhất từ cloud!');
+          currentDbHash = newHash;
+          if (dbBlob.uploadedAt) lastBlobUploadedAt = new Date(dbBlob.uploadedAt).getTime();
+          console.log(`✅ Đã cập nhật database mới từ cloud (MD5 thay đổi: ${currentDbHash})!`);
         }
       }
     }
@@ -143,8 +145,9 @@ async function initDatabase() {
           db = new SQL.Database(buffer);
           fs.writeFileSync(DB_PATH, buffer);
           loadedFromBlob = true;
+          currentDbHash = crypto.createHash('md5').update(buffer).digest('hex');
           lastBlobUploadedAt = new Date(dbBlob.uploadedAt).getTime();
-          console.log('✅ Đã khôi phục database thành công từ Vercel Blob!');
+          console.log(`✅ Đã khôi phục database thành công từ Vercel Blob (MD5: ${currentDbHash})!`);
         } else {
           console.error(`⚠️ Tải từ Blob thất bại: HTTP ${res.status}`);
         }
@@ -161,14 +164,17 @@ async function initDatabase() {
     if (fs.existsSync(DB_PATH)) {
       const fileBuffer = fs.readFileSync(DB_PATH);
       db = new SQL.Database(fileBuffer);
+      currentDbHash = crypto.createHash('md5').update(fileBuffer).digest('hex');
       console.log(`✅ Đã tải database từ file ${DB_PATH}`);
     } else if (isVercel && fs.existsSync(path.join(__dirname, 'quiz.db'))) {
       // In Vercel serverless, read original bundled quiz.db and copy to /tmp
       const fileBuffer = fs.readFileSync(path.join(__dirname, 'quiz.db'));
       db = new SQL.Database(fileBuffer);
+      currentDbHash = crypto.createHash('md5').update(fileBuffer).digest('hex');
       console.log('✅ Đã tải database gốc từ quiz.db vào /tmp (Không ghi đè lên cloud)');
     } else {
       db = new SQL.Database();
+      currentDbHash = crypto.createHash('md5').update(Buffer.from(db.export())).digest('hex');
       console.log('✅ Đã tạo database mới (Không ghi đè lên cloud)');
     }
   }
