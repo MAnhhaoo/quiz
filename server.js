@@ -73,7 +73,9 @@ async function syncFromBlobIfNewer() {
       const blobTime = new Date(dbBlob.uploadedAt).getTime();
       if (blobTime > lastBlobUploadedAt) {
         console.log(`☁️ Phát hiện database mới trên cloud (${dbBlob.uploadedAt}), đang đồng bộ về container...`);
-        const fetchUrl = `${dbBlob.downloadUrl || dbBlob.url}?t=${Date.now()}`;
+        const baseUrl = dbBlob.url;
+        const separator = baseUrl.includes('?') ? '&' : '?';
+        const fetchUrl = `${baseUrl}${separator}t=${Date.now()}`;
         const res = await fetch(fetchUrl, {
           cache: 'no-store',
           headers: {
@@ -123,8 +125,10 @@ async function initDatabase() {
       const dbBlob = dbBlobs.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))[0];
       if (dbBlob) {
         console.log(`☁️ Đã tìm thấy bản sao trên cloud (${dbBlob.url}), đang tải về...`);
-        // Thêm tham số timestamp ?t=Date.now() và header chống cache tuyệt đối
-        const fetchUrl = `${dbBlob.downloadUrl || dbBlob.url}?t=${Date.now()}`;
+        // Thêm tham số timestamp để tránh bị Vercel Edge CDN cache trả về file db cũ (chuẩn hóa dấu ? hoặc &)
+        const baseUrl = dbBlob.url;
+        const separator = baseUrl.includes('?') ? '&' : '?';
+        const fetchUrl = `${baseUrl}${separator}t=${Date.now()}`;
         const res = await fetch(fetchUrl, {
           cache: 'no-store',
           headers: {
