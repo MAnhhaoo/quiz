@@ -226,14 +226,40 @@ async function loadTopics() {
     const topics = await apiGet('/topics');
     const grid = document.getElementById('topic-grid');
     const empty = document.getElementById('empty-state');
+    const combinedSec = document.getElementById('combined-section');
 
     if (topics.length === 0) {
       grid.innerHTML = '';
       empty.style.display = 'block';
+      if (combinedSec) combinedSec.style.display = 'none';
       return;
     }
 
     empty.style.display = 'none';
+
+    // Calculate total questions across all topics
+    const totalQuestions = topics.reduce((sum, t) => sum + Number(t.question_count || 0), 0);
+    if (combinedSec) {
+      if (topics.length > 0 && totalQuestions > 0) {
+        combinedSec.style.display = 'block';
+        document.getElementById('combined-subtitle').innerHTML = `Trộn ngẫu nhiên <strong>${totalQuestions} câu hỏi</strong> từ <strong>${topics.length} chủ đề</strong> của bạn vào một bài Quiz duy nhất!`;
+        
+        // Render custom combine checkboxes
+        const checkboxesEl = document.getElementById('custom-combine-checkboxes');
+        if (checkboxesEl) {
+          checkboxesEl.innerHTML = topics.filter(t => Number(t.question_count) > 0).map(t => `
+            <label class="combine-topic-check">
+              <input type="checkbox" value="${t.id}" data-name="${escapeAttr(t.name)}" checked>
+              <span style="flex:1;">${escapeHtml(t.name)}</span>
+              <span class="badge" style="font-size:0.75rem;">${t.question_count} câu</span>
+            </label>
+          `).join('');
+        }
+      } else {
+        combinedSec.style.display = 'none';
+      }
+    }
+
     grid.innerHTML = topics.map(topic => `
       <div class="topic-card" data-id="${topic.id}" onclick="openTopic(${topic.id})">
         <div class="topic-card-header">
@@ -252,6 +278,47 @@ async function loadTopics() {
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+function toggleCustomCombine() {
+  const box = document.getElementById('custom-combine-box');
+  if (!box) return;
+  if (box.style.display === 'none' || !box.style.display) {
+    box.style.display = 'block';
+  } else {
+    box.style.display = 'none';
+  }
+}
+
+function selectAllCombineTopics(checked) {
+  document.querySelectorAll('.combine-topic-check input[type="checkbox"]').forEach(cb => {
+    cb.checked = checked;
+  });
+}
+
+async function startCombinedQuiz() {
+  state.quizRound = 1;
+  state.currentTopicId = 'all';
+  state.currentTopic = { id: 'all', name: '🌟 Tổng Hợp Tất Cả Chủ Đề' };
+  await startQuiz();
+}
+
+async function startCustomCombinedQuiz() {
+  const selectedCbs = Array.from(document.querySelectorAll('.combine-topic-check input[type="checkbox"]:checked'));
+  if (selectedCbs.length === 0) {
+    showToast('Vui lòng chọn ít nhất 1 chủ đề để luyện tập!', 'error');
+    return;
+  }
+  const selectedIds = selectedCbs.map(cb => cb.value).join(',');
+  const selectedNames = selectedCbs.map(cb => cb.dataset.name);
+  
+  state.quizRound = 1;
+  state.currentTopicId = `all?topics=${selectedIds}`;
+  state.currentTopic = { 
+    id: state.currentTopicId, 
+    name: selectedNames.length === 1 ? `📖 ${selectedNames[0]}` : `🌟 Trộn ${selectedNames.length} Chủ đề`
+  };
+  await startQuiz();
 }
 
 async function createTopic(e) {
@@ -633,7 +700,12 @@ async function exportJson() {
 // =============================================
 async function startQuiz() {
   try {
-    const questions = await apiGet(`/topics/${state.currentTopicId}/quiz`);
+    let endpoint = `/topics/${state.currentTopicId}/quiz`;
+    if (String(state.currentTopicId).startsWith('all')) {
+      const queryPart = String(state.currentTopicId).includes('?') ? String(state.currentTopicId).substring(String(state.currentTopicId).indexOf('?')) : '';
+      endpoint = `/quiz/all${queryPart}`;
+    }
+    const questions = await apiGet(endpoint);
     state.quizQuestions = questions;
     state.quizCurrentIndex = 0;
     state.quizCorrectCount = 0;
@@ -656,7 +728,13 @@ function renderQuizQuestion() {
 
   document.getElementById('quiz-progress-text').textContent = `Câu ${current}/${total}`;
   document.getElementById('quiz-progress-bar').style.width = `${(current / total) * 100}%`;
-  document.getElementById('quiz-question-number').innerHTML = `Câu ${current} / ${total} ${q.question_type === 'essay' ? '<span class="badge badge-essay">✍️ Tự luận</span>' : ''}`;
+  
+  let topicBadge = '';
+  if (q.topic_name) {
+    topicBadge = `<span class="badge" style="background:var(--accent-info);color:#fff;font-size:0.75rem;margin-left:6px;">📚 ${escapeHtml(q.topic_name)}</span>`;
+  }
+  
+  document.getElementById('quiz-question-number').innerHTML = `Câu ${current} / ${total} ${q.question_type === 'essay' ? '<span class="badge badge-essay">✍️ Tự luận</span>' : ''} ${topicBadge}`;
   document.getElementById('quiz-question-content').textContent = q.content;
 
   const optionsContainer = document.getElementById('quiz-options');
@@ -1162,12 +1240,25 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-submit-essay').addEventListener('click', submitEssay);
   document.getElementById('btn-quit-quiz').addEventListener('click', async () => {
     const confirmed = await showConfirm('⚠️ Thoát Quiz?', 'Tiến trình làm quiz hiện tại sẽ bị mất. Bạn có chắc muốn thoát?');
-    if (confirmed) { showScreen('manage'); loadQuestions(); }
+    if (confirmed) {
+      if (String(state.currentTopicId).startsWith('all')) {
+        showScreen('home'); loadTopics();
+      } else {
+        showScreen('manage'); loadQuestions();
+      }
+    }
   });
 
   // ---- Results Screen ----
   document.getElementById('btn-retry-quiz').addEventListener('click', retryQuiz);
-  document.getElementById('btn-back-to-topic').addEventListener('click', () => { state.quizRound = 1; showScreen('manage'); loadQuestions(); });
+  document.getElementById('btn-back-to-topic').addEventListener('click', () => {
+    state.quizRound = 1;
+    if (String(state.currentTopicId).startsWith('all')) {
+      showScreen('home'); loadTopics();
+    } else {
+      showScreen('manage'); loadQuestions();
+    }
+  });
 
   // ---- Settings Screen ----
   document.getElementById('btn-back-from-settings').addEventListener('click', () => { showScreen('home'); loadTopics(); });

@@ -586,7 +586,7 @@ app.get('/api/topics/:id/export', authMiddleware, async (req, res) => {
 // =============================================
 
 app.get('/api/topics/:id/quiz', authMiddleware, async (req, res) => {
-  const topic = await queryOne('SELECT id FROM topics WHERE id = ? AND user_id = ?', [Number(req.params.id), req.user.id]);
+  const topic = await queryOne('SELECT id, name FROM topics WHERE id = ? AND user_id = ?', [Number(req.params.id), req.user.id]);
   if (!topic) return res.status(404).json({ error: 'Không tìm thấy chủ đề' });
 
   const questions = await queryAll('SELECT * FROM questions WHERE topic_id = ?', [Number(req.params.id)]);
@@ -612,6 +612,7 @@ app.get('/api/topics/:id/quiz', authMiddleware, async (req, res) => {
         correct_answer: q.correct_answer,
         explanation: q.explanation || '',
         example_sentence: q.example_sentence || '',
+        topic_name: topic.name,
       };
     }
 
@@ -642,6 +643,87 @@ app.get('/api/topics/:id/quiz', authMiddleware, async (req, res) => {
       correct_answer: labels[correctIndex],
       explanation: q.explanation || '',
       example_sentence: q.example_sentence || '',
+      topic_name: topic.name,
+    };
+  });
+
+  res.json(quizQuestions);
+});
+
+// GET combined quiz across all (or selected) topics of current user
+app.get('/api/quiz/all', authMiddleware, async (req, res) => {
+  let querySql = `
+    SELECT q.*, t.name as topic_name
+    FROM questions q
+    JOIN topics t ON q.topic_id = t.id
+    WHERE t.user_id = ?
+  `;
+  const params = [req.user.id];
+
+  if (req.query.topics && req.query.topics.trim()) {
+    const topicIds = req.query.topics.split(',').map(id => Number(id.trim())).filter(id => !isNaN(id) && id > 0);
+    if (topicIds.length > 0) {
+      const placeholders = topicIds.map(() => '?').join(',');
+      querySql += ` AND t.id IN (${placeholders})`;
+      params.push(...topicIds);
+    }
+  }
+
+  const questions = await queryAll(querySql, params);
+
+  if (questions.length === 0) {
+    return res.status(400).json({ error: 'Các chủ đề được chọn chưa có câu hỏi nào' });
+  }
+
+  const shuffled = [...questions];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  const quizQuestions = shuffled.map(q => {
+    const qType = q.question_type || 'multiple_choice';
+
+    if (qType === 'essay') {
+      return {
+        id: q.id,
+        content: q.content,
+        question_type: 'essay',
+        correct_answer: q.correct_answer,
+        explanation: q.explanation || '',
+        example_sentence: q.example_sentence || '',
+        topic_name: q.topic_name || '',
+      };
+    }
+
+    const options = [
+      { key: 'A', text: q.option_a },
+      { key: 'B', text: q.option_b },
+      { key: 'C', text: q.option_c },
+      { key: 'D', text: q.option_d },
+    ];
+
+    for (let i = options.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [options[i], options[j]] = [options[j], options[i]];
+    }
+
+    const correctOptionText = q[`option_${q.correct_answer.toLowerCase()}`];
+    const correctIndex = options.findIndex(o => o.text === correctOptionText);
+    const labels = ['A', 'B', 'C', 'D'];
+
+    return {
+      id: q.id,
+      content: q.content,
+      question_type: 'multiple_choice',
+      options: options.map((o, idx) => ({
+        label: labels[idx],
+        text: o.text,
+      })),
+      correct_answer: labels[correctIndex],
+      explanation: q.explanation || '',
+      example_sentence: q.example_sentence || '',
+      topic_name: q.topic_name || '',
     };
   });
 

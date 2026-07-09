@@ -121,6 +121,44 @@
         </div>
       </div>
 
+      <!-- Combined Quiz (Option 2) Section -->
+      <div class="combined-section" id="combined-section" style="display:none;">
+        <div class="combined-card">
+          <div class="combined-card-left">
+            <div class="combined-icon">🎲</div>
+            <div>
+              <h3>Luyện tập Tổng hợp (Option 2)</h3>
+              <p id="combined-subtitle">Trộn ngẫu nhiên câu hỏi từ tất cả các chủ đề để làm một bài thi duy nhất!</p>
+            </div>
+          </div>
+          <div class="combined-card-actions">
+            <button class="btn btn-accent btn-large" id="btn-start-combined-all" onclick="startCombinedQuiz()">
+              🚀 Làm Trộn Tất Cả Chủ Đề
+            </button>
+            <button class="btn btn-ghost btn-sm" id="btn-toggle-custom-combine" onclick="toggleCustomCombine()">
+              ⚙️ Chọn cụ thể chủ đề
+            </button>
+          </div>
+        </div>
+
+        <!-- Custom multi-topic select (Hidden by default) -->
+        <div class="custom-combine-box" id="custom-combine-box" style="display:none;">
+          <div class="custom-combine-header">
+            <span>☑️ Chọn các chủ đề bạn muốn gộp vào bài Quiz:</span>
+            <div class="custom-combine-select-actions">
+              <button class="btn btn-ghost btn-sm" onclick="selectAllCombineTopics(true)">Chọn tất cả</button>
+              <button class="btn btn-ghost btn-sm" onclick="selectAllCombineTopics(false)">Bỏ chọn</button>
+            </div>
+          </div>
+          <div class="custom-combine-checkboxes" id="custom-combine-checkboxes"></div>
+          <div style="margin-top: 1rem; text-align: right;">
+            <button class="btn btn-primary" onclick="startCustomCombinedQuiz()">
+              ▶️ Bắt đầu Quiz với chủ đề đã chọn
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Topic Cards Grid -->
       <div class="topic-grid" id="topic-grid"></div>
 

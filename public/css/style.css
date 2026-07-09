@@ -1674,3 +1674,135 @@ textarea { resize: vertical; min-height: 60px; }
   flex: 1;
 }
 
+/* =============================================
+   COMBINED QUIZ (OPTION 2) STYLES
+   ============================================= */
+.combined-section {
+  margin-bottom: 2rem;
+}
+
+.combined-card {
+  background: linear-gradient(135deg, rgba(127, 90, 240, 0.18) 0%, rgba(44, 182, 125, 0.15) 100%);
+  border: 1.5px solid rgba(127, 90, 240, 0.4);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  box-shadow: 0 4px 25px rgba(127, 90, 240, 0.15);
+  transition: var(--transition-normal);
+}
+
+.combined-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 35px rgba(127, 90, 240, 0.25);
+  border-color: rgba(127, 90, 240, 0.6);
+}
+
+.combined-card-left {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.combined-icon {
+  font-size: 2.8rem;
+  filter: drop-shadow(0 2px 8px rgba(127, 90, 240, 0.4));
+}
+
+.combined-card h3 {
+  font-size: 1.3rem;
+  color: var(--text-primary);
+  margin-bottom: 0.3rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.combined-card p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.combined-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: stretch;
+  min-width: 220px;
+}
+
+.custom-combine-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  padding: 1.5rem 2rem;
+  margin-top: -6px;
+  animation: fadeSlideDown 0.3s ease;
+}
+
+.custom-combine-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.custom-combine-select-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.custom-combine-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.8rem;
+}
+
+.combine-topic-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--bg-glass);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.combine-topic-check:hover {
+  background: rgba(127, 90, 240, 0.15);
+  border-color: rgba(127, 90, 240, 0.3);
+}
+
+.combine-topic-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .combined-card {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 1.25rem;
+  }
+  .combined-card-actions {
+    width: 100%;
+  }
+}
+
+@keyframes fadeSlideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
