@@ -652,6 +652,54 @@ app.get('/api/topics/:id/quiz', authMiddleware, async (req, res) => {
 // API — AI GRADING & REVIEW (Google Gemini)
 // =============================================
 
+// Helper to call Google Gemini API with clear error handling & Vietnamese translation
+async function callGeminiApi(prompt, apiKey, temperature = 0.3) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error('Gemini API error status:', response.status, errText);
+    let rawMsg = 'AI API lỗi';
+    try {
+      const errJson = JSON.parse(errText);
+      if (errJson.error && errJson.error.message) {
+        rawMsg = errJson.error.message;
+      }
+    } catch (e) {
+      rawMsg = errText || 'Lỗi kết nối AI';
+    }
+
+    // Translate specific quota and API key errors to friendly Vietnamese
+    if (response.status === 429 || rawMsg.includes('Quota exceeded') || rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('free_tier_requests') || rawMsg.includes('rate-limit')) {
+      let retryHint = 'Vui lòng chờ khoảng 30 - 60 giây rồi thử lại';
+      const matchRetry = rawMsg.match(/retry in ([0-9.]+)s/i);
+      if (matchRetry && matchRetry[1]) {
+        const secs = Math.ceil(parseFloat(matchRetry[1]));
+        retryHint = `Vui lòng thử lại sau khoảng ${secs} giây`;
+      }
+      throw new Error(`⏳ Bạn đã vượt quá giới hạn lượt dùng miễn phí (Free Tier Quota) của Google Gemini (${retryHint}). Hoặc bạn có thể sử dụng API Key khác / nâng cấp tài khoản Google AI lên trả phí (Pay-as-you-go).`);
+    } else if (response.status === 400 || response.status === 403 || rawMsg.includes('API_KEY_INVALID') || rawMsg.includes('API key not valid')) {
+      throw new Error('❌ API Key Google Gemini không hợp lệ hoặc đã bị thu hồi. Vui lòng vào mục Cài đặt để kiểm tra và cập nhật lại API Key!');
+    } else {
+      throw new Error(`⚠️ Lỗi từ Google AI (${response.status}): ${rawMsg}`);
+    }
+  }
+
+  const data = await response.json();
+  const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return aiText;
+}
+
 app.post('/api/ai/grade', authMiddleware, async (req, res) => {
   const { question, correct_answer, student_answer, explanation, example_sentence } = req.body;
 
@@ -703,26 +751,7 @@ Consider the answer correct if the meaning is the same, even if the wording is s
 Respond ONLY with a valid JSON object (no markdown, no code blocks):
 {"is_correct": true or false, "score": 0 to 100, "feedback": "brief feedback in Vietnamese explaining why the answer is correct or what the student got wrong"}`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3 }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('Gemini API error:', errText);
-      throw new Error('AI API lỗi');
-    }
-
-    const data = await response.json();
-    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const aiText = await callGeminiApi(prompt, apiKey, 0.3);
 
     let aiResult;
     try {
@@ -745,10 +774,15 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks):
     const normalize = (s) => s.toLowerCase().trim().replace(/[.,!?;:'"]/g, '').replace(/\s+/g, ' ');
     const isExact = normalize(student_answer) === normalize(correct_answer);
 
+    let fallbackMsg = isExact ? '✅ Chính xác!' : `❌ Đáp án mẫu: "${correct_answer}" (AI tạm thời không khả dụng: ${err.message})`;
+    if (err.message && (err.message.includes('vượt quá giới hạn') || err.message.includes('API Key') || err.message.includes('Lỗi từ Google AI'))) {
+      fallbackMsg = `${isExact ? '✅ Chính xác!' : `❌ Đáp án mẫu: "${correct_answer}"`} \n\n${err.message}`;
+    }
+
     res.json({
       is_correct: isExact,
       score: isExact ? 100 : 0,
-      feedback: isExact ? '✅ Chính xác!' : `❌ Đáp án mẫu: "${correct_answer}" (AI không khả dụng, dùng so sánh trực tiếp)`,
+      feedback: fallbackMsg,
       explanation: explanation || '',
       example_sentence: example_sentence || '',
       ai_powered: false,
@@ -791,33 +825,7 @@ Keep your response concise (2-4 sentences). Do NOT grade or give a score — jus
 Respond ONLY with a valid JSON object (no markdown, no code blocks):
 {"review": "your review text in Vietnamese"}`;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.5 }
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('Gemini API error (review):', errText);
-      let errMsg = 'AI API lỗi';
-      try {
-        const errJson = JSON.parse(errText);
-        if (errJson.error && errJson.error.message) {
-          errMsg = errJson.error.message;
-        }
-      } catch (e) {}
-      throw new Error(errMsg);
-    }
-
-    const data = await response.json();
-    const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const aiText = await callGeminiApi(prompt, apiKey, 0.5);
 
     let aiResult;
     try {
@@ -834,7 +842,7 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks):
   } catch (err) {
     console.error('AI review error:', err.message);
     res.json({
-      review: `⚠️ Lỗi kết nối AI: ${err.message}. (Vui lòng kiểm tra lại API Key trong Cài đặt)`,
+      review: err.message,
       ai_powered: false,
     });
   }
