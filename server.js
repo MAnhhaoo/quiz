@@ -121,6 +121,8 @@ async function initDatabase() {
   // ---- MIGRATION: Add columns if they don't exist ----
   const columnsToAdd = [
     { table: 'topics', column: 'user_id', type: 'INTEGER DEFAULT 1' },
+    { table: 'topics', column: 'is_review', type: 'BOOLEAN DEFAULT FALSE' },
+    { table: 'topics', column: 'source_topic_id', type: 'INTEGER DEFAULT NULL' },
     { table: 'questions', column: 'question_type', type: "TEXT DEFAULT 'multiple_choice'" },
     { table: 'questions', column: 'explanation', type: "TEXT DEFAULT ''" },
     { table: 'questions', column: 'example_sentence', type: "TEXT DEFAULT ''" },
@@ -317,8 +319,8 @@ app.get('/api/topics', authMiddleware, async (req, res) => {
     FROM topics t
     LEFT JOIN questions q ON q.topic_id = t.id
     WHERE t.user_id = ?
-    GROUP BY t.id
-    ORDER BY t.created_at DESC
+    GROUP BY t.id, t.name, t.description, t.user_id, t.created_at, t.is_review, t.source_topic_id
+    ORDER BY t.is_review ASC, t.created_at DESC
   `, [req.user.id]);
   res.json(topics);
 });
@@ -357,8 +359,13 @@ app.put('/api/topics/:id', authMiddleware, async (req, res) => {
 
 // DELETE topic
 app.delete('/api/topics/:id', authMiddleware, async (req, res) => {
-  const existing = await queryOne('SELECT id FROM topics WHERE id = ? AND user_id = ?', [Number(req.params.id), req.user.id]);
+  const existing = await queryOne('SELECT id, is_review FROM topics WHERE id = ? AND user_id = ?', [Number(req.params.id), req.user.id]);
   if (!existing) return res.status(404).json({ error: 'Không tìm thấy chủ đề' });
+
+  // Block non-admin users from deleting review topics
+  if (existing.is_review && req.user.id !== 1) {
+    return res.status(403).json({ error: 'Bạn không thể xóa chủ đề ôn lại. Hãy làm đúng tất cả câu hỏi để chủ đề tự động bị xóa!' });
+  }
 
   await execute('DELETE FROM questions WHERE topic_id = ?', [Number(req.params.id)]);
   await execute('DELETE FROM topics WHERE id = ?', [Number(req.params.id)]);
@@ -931,6 +938,93 @@ Respond ONLY with a valid JSON object (no markdown, no code blocks):
 });
 
 // =============================================
+// REVIEW TOPICS API
+// =============================================
+
+// POST create review topic from wrong answers
+app.post('/api/topics/:id/review', authMiddleware, async (req, res) => {
+  const { wrong_question_ids, round } = req.body;
+
+  if (!Array.isArray(wrong_question_ids) || wrong_question_ids.length === 0) {
+    return res.status(400).json({ error: 'Không có câu hỏi sai để tạo chủ đề ôn lại' });
+  }
+
+  // Get source topic info
+  const sourceTopic = await queryOne('SELECT id, name, is_review, source_topic_id FROM topics WHERE id = ? AND user_id = ?', [Number(req.params.id), req.user.id]);
+  
+  // For combined quiz (all topics), create a general review topic
+  let reviewName;
+  let sourceId;
+  if (!sourceTopic) {
+    // Combined quiz mode — use a generic name
+    reviewName = `📌 Ôn lại: Tổng hợp (lần ${round || 1})`;
+    sourceId = null;
+  } else {
+    // Get the original topic name (trace back through review chain)
+    let originalName = sourceTopic.name;
+    if (sourceTopic.is_review && sourceTopic.source_topic_id) {
+      const original = await queryOne('SELECT name FROM topics WHERE id = ?', [sourceTopic.source_topic_id]);
+      if (original) originalName = original.name;
+    }
+    // Clean up the original name (remove existing 📌 prefix)
+    originalName = originalName.replace(/^📌 Ôn lại: /g, '').replace(/ \(lần \d+\)$/g, '');
+    reviewName = `📌 Ôn lại: ${originalName} (lần ${round || 1})`;
+    sourceId = sourceTopic.is_review ? (sourceTopic.source_topic_id || sourceTopic.id) : sourceTopic.id;
+  }
+
+  // Create the review topic
+  const reviewTopicId = await execute(
+    'INSERT INTO topics (name, description, user_id, is_review, source_topic_id) VALUES (?, ?, ?, ?, ?)',
+    [reviewName, 'Chủ đề ôn lại tự động — làm đúng hết để xóa!', req.user.id, true, sourceId]
+  );
+
+  // Copy wrong questions into the review topic
+  let copied = 0;
+  for (const qId of wrong_question_ids) {
+    const q = await queryOne('SELECT * FROM questions WHERE id = ?', [Number(qId)]);
+    if (q) {
+      await execute(
+        `INSERT INTO questions (topic_id, content, option_a, option_b, option_c, option_d, correct_answer, question_type, explanation, example_sentence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          reviewTopicId,
+          q.content,
+          q.option_a || '',
+          q.option_b || '',
+          q.option_c || '',
+          q.option_d || '',
+          q.correct_answer,
+          q.question_type || 'multiple_choice',
+          q.explanation || '',
+          q.example_sentence || ''
+        ]
+      );
+      copied++;
+    }
+  }
+
+  const reviewTopic = await queryOne('SELECT * FROM topics WHERE id = ?', [reviewTopicId]);
+  res.status(201).json({
+    message: `Đã tạo chủ đề ôn lại với ${copied} câu hỏi sai`,
+    topic: reviewTopic,
+    copied
+  });
+});
+
+// POST complete review topic (auto-delete if 100% correct)
+app.post('/api/review-topics/:id/complete', authMiddleware, async (req, res) => {
+  const topic = await queryOne('SELECT id, is_review FROM topics WHERE id = ? AND user_id = ?', [Number(req.params.id), req.user.id]);
+  if (!topic) return res.status(404).json({ error: 'Không tìm thấy chủ đề' });
+  if (!topic.is_review) return res.status(400).json({ error: 'Chủ đề này không phải chủ đề ôn lại' });
+
+  // Delete the review topic and its questions
+  await execute('DELETE FROM questions WHERE topic_id = ?', [Number(req.params.id)]);
+  await execute('DELETE FROM topics WHERE id = ?', [Number(req.params.id)]);
+
+  res.json({ message: '🎉 Chúc mừng! Bạn đã hoàn thành ôn lại! Chủ đề ôn lại đã được xóa tự động.', deleted: true });
+});
+
+// =============================================
 // ADMIN API ROUTES
 // =============================================
 
@@ -991,6 +1085,30 @@ app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, 
   await execute('DELETE FROM users WHERE id = ?', [userId]);
 
   res.json({ message: 'Đã xóa người dùng thành công' });
+});
+
+// Admin: Force delete any review topic
+app.delete('/api/admin/review-topics/:id', authMiddleware, adminMiddleware, async (req, res) => {
+  const topic = await queryOne('SELECT id, is_review, user_id FROM topics WHERE id = ?', [Number(req.params.id)]);
+  if (!topic) return res.status(404).json({ error: 'Không tìm thấy chủ đề' });
+
+  await execute('DELETE FROM questions WHERE topic_id = ?', [Number(req.params.id)]);
+  await execute('DELETE FROM topics WHERE id = ?', [Number(req.params.id)]);
+  res.json({ message: 'Admin đã xóa chủ đề ôn lại thành công' });
+});
+
+// Admin: Get all review topics across all users
+app.get('/api/admin/review-topics', authMiddleware, adminMiddleware, async (req, res) => {
+  const topics = await queryAll(`
+    SELECT t.*, u.display_name as owner_name, u.username as owner_username, COUNT(q.id) as question_count
+    FROM topics t
+    JOIN users u ON t.user_id = u.id
+    LEFT JOIN questions q ON q.topic_id = t.id
+    WHERE t.is_review = TRUE
+    GROUP BY t.id, t.name, t.description, t.user_id, t.created_at, t.is_review, t.source_topic_id, u.display_name, u.username
+    ORDER BY t.created_at DESC
+  `);
+  res.json(topics);
 });
 
 // =============================================

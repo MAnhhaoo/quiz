@@ -16,6 +16,8 @@ const state = {
   quizCorrectCount: 0,
   quizAnswered: false,
   quizRound: 1,
+  quizWrongQuestions: [], // Track wrong question IDs
+  activeVoiceRecognition: null, // Track active speech recognition
 };
 
 // =============================================
@@ -260,21 +262,38 @@ async function loadTopics() {
       }
     }
 
-    grid.innerHTML = topics.map(topic => `
-      <div class="topic-card" data-id="${topic.id}" onclick="openTopic(${topic.id})">
-        <div class="topic-card-header">
-          <div class="topic-card-name">${escapeHtml(topic.name)}</div>
-        </div>
-        ${topic.description ? `<div class="topic-card-desc">${escapeHtml(topic.description)}</div>` : '<div class="topic-card-desc" style="color:var(--text-muted);font-style:italic;">Không có mô tả</div>'}
-        <div class="topic-card-footer">
-          <span class="topic-card-count">📝 ${topic.question_count} câu hỏi</span>
-          <div class="topic-card-actions">
-            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); editTopic(${topic.id}, '${escapeAttr(topic.name)}', '${escapeAttr(topic.description || '')}')">✏️</button>
-            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTopic(${topic.id}, '${escapeAttr(topic.name)}')">🗑️</button>
+    grid.innerHTML = topics.map(topic => {
+      const isReview = topic.is_review;
+      const reviewBadge = isReview ? '<span class="badge badge-review">📌 Ôn lại</span>' : '';
+      const cardClass = isReview ? 'topic-card topic-card-review' : 'topic-card';
+      
+      // Hide delete button for review topics (non-admin)
+      const canDelete = !isReview || (state.user && state.user.id === 1);
+      const deleteBtn = canDelete 
+        ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteTopic(${topic.id}, '${escapeAttr(topic.name)}')">🗑️</button>` 
+        : '';
+      
+      // Hide edit button for review topics
+      const editBtn = !isReview 
+        ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); editTopic(${topic.id}, '${escapeAttr(topic.name)}', '${escapeAttr(topic.description || '')}')">✏️</button>`
+        : '';
+
+      return `
+        <div class="${cardClass}" data-id="${topic.id}" onclick="openTopic(${topic.id})">
+          <div class="topic-card-header">
+            <div class="topic-card-name">${escapeHtml(topic.name)} ${reviewBadge}</div>
+          </div>
+          ${topic.description ? `<div class="topic-card-desc">${escapeHtml(topic.description)}</div>` : '<div class="topic-card-desc" style="color:var(--text-muted);font-style:italic;">Không có mô tả</div>'}
+          <div class="topic-card-footer">
+            <span class="topic-card-count">📝 ${topic.question_count} câu hỏi</span>
+            <div class="topic-card-actions">
+              ${editBtn}
+              ${deleteBtn}
+            </div>
           </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -710,6 +729,7 @@ async function startQuiz() {
     state.quizCurrentIndex = 0;
     state.quizCorrectCount = 0;
     state.quizAnswered = false;
+    state.quizWrongQuestions = []; // Reset wrong questions
 
     document.getElementById('quiz-topic-name').textContent = state.currentTopic.name;
     document.getElementById('quiz-round-label').textContent = `Vòng ${state.quizRound}`;
@@ -786,7 +806,12 @@ function selectAnswer(label) {
 
   const q = state.quizQuestions[state.quizCurrentIndex];
   const isCorrect = label === q.correct_answer;
-  if (isCorrect) state.quizCorrectCount++;
+  if (isCorrect) {
+    state.quizCorrectCount++;
+  } else {
+    // Track wrong answer
+    state.quizWrongQuestions.push(q.id);
+  }
 
   const options = document.querySelectorAll('.quiz-option');
   options.forEach(opt => {
@@ -872,6 +897,9 @@ async function submitEssay() {
     document.getElementById('ai-loading').style.display = 'none';
     if (res.is_correct || res.score >= 50) {
       state.quizCorrectCount++;
+    } else {
+      // Track wrong answer for essay
+      state.quizWrongQuestions.push(q.id);
     }
 
     const aiResult = document.getElementById('ai-result');
@@ -967,7 +995,20 @@ function showResults() {
   else if (percent >= 40) { icon.textContent = '📖'; title.textContent = 'Cần cố gắng!'; subtitle.textContent = 'Hãy ôn lại kiến thức và thử lại nhé.'; }
   else { icon.textContent = '💪'; title.textContent = 'Đừng bỏ cuộc!'; subtitle.textContent = 'Luyện tập nhiều hơn, bạn sẽ tiến bộ!'; }
 
+  // Show/hide review button based on wrong answers
+  const reviewBtn = document.getElementById('btn-review-wrong');
+  if (wrong > 0 && state.quizWrongQuestions.length > 0) {
+    reviewBtn.style.display = 'inline-flex';
+    reviewBtn.disabled = false;
+    reviewBtn.textContent = `📌 Ôn lại ${wrong} câu sai`;
+  } else {
+    reviewBtn.style.display = 'none';
+  }
+
   showScreen('results');
+
+  // Check if this was a review topic quiz with 100% — auto-delete it
+  checkReviewTopicCompletion();
 
   requestAnimationFrame(() => {
     ensureScoreGradient();
@@ -995,6 +1036,144 @@ function ensureScoreGradient() {
 async function retryQuiz() {
   state.quizRound++;
   await startQuiz();
+}
+
+// =============================================
+// REVIEW TOPICS: Create from wrong answers
+// =============================================
+async function createReviewTopic() {
+  if (state.quizWrongQuestions.length === 0) {
+    showToast('Không có câu sai để tạo chủ đề ôn lại!', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('btn-review-wrong');
+  btn.disabled = true;
+  btn.textContent = '⏳ Đang tạo...';
+
+  try {
+    // Determine the source topic ID (for the API endpoint)
+    let sourceTopicId = state.currentTopicId;
+    
+    // For combined quiz, use first wrong question's topic or "0" as fallback
+    if (String(sourceTopicId).startsWith('all')) {
+      sourceTopicId = 0; // Use 0 for combined quiz
+    }
+
+    const res = await apiPost(`/topics/${sourceTopicId}/review`, {
+      wrong_question_ids: state.quizWrongQuestions,
+      round: state.quizRound
+    });
+
+    showToast(res.message);
+    btn.textContent = '✅ Đã tạo chủ đề ôn lại!';
+    btn.disabled = true;
+
+    // After a moment, go back to home
+    setTimeout(() => {
+      showScreen('home');
+      loadTopics();
+    }, 1500);
+  } catch (err) {
+    showToast(err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = '📌 Ôn lại câu sai';
+  }
+}
+
+// Auto-check if review quiz is 100% correct and delete the review topic
+async function checkReviewTopicCompletion() {
+  // Only applies to review topics (not combined quiz)
+  if (String(state.currentTopicId).startsWith('all')) return;
+  if (!state.currentTopic || !state.currentTopic.is_review) return;
+
+  const total = state.quizQuestions.length;
+  const correct = state.quizCorrectCount;
+
+  if (correct === total) {
+    // 100% correct! Auto-delete the review topic
+    try {
+      const res = await apiPost(`/review-topics/${state.currentTopicId}/complete`);
+      showToast(res.message);
+    } catch (err) {
+      console.error('Failed to auto-delete review topic:', err);
+    }
+  }
+}
+
+// =============================================
+// VOICE INPUT (Web Speech API)
+// =============================================
+function toggleVoiceInput(textareaId, btnElement) {
+  // Check browser support
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    showToast('Trình duyệt của bạn không hỗ trợ nhập giọng nói. Vui lòng sử dụng Chrome hoặc Edge.', 'error');
+    return;
+  }
+
+  // If already recording, stop
+  if (state.activeVoiceRecognition && state.activeVoiceRecognition._targetId === textareaId) {
+    state.activeVoiceRecognition.stop();
+    return;
+  }
+
+  // Stop any existing recognition
+  if (state.activeVoiceRecognition) {
+    state.activeVoiceRecognition.stop();
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'en-US'; // Default to English, will also pick up Vietnamese
+  recognition.interimResults = true;
+  recognition.continuous = true;
+  recognition.maxAlternatives = 1;
+  recognition._targetId = textareaId;
+
+  const textarea = document.getElementById(textareaId);
+  let finalTranscript = textarea.value;
+  
+  recognition.onstart = () => {
+    btnElement.classList.add('recording');
+    btnElement.querySelector('.voice-icon').textContent = '⏹️';
+    btnElement.title = 'Nhấn để dừng ghi âm';
+  };
+
+  recognition.onresult = (event) => {
+    let interimTranscript = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        finalTranscript += (finalTranscript ? ' ' : '') + transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+    textarea.value = finalTranscript + (interimTranscript ? ' ' + interimTranscript : '');
+  };
+
+  recognition.onerror = (event) => {
+    console.error('Speech recognition error:', event.error);
+    if (event.error === 'not-allowed') {
+      showToast('Vui lòng cho phép trình duyệt truy cập microphone!', 'error');
+    } else if (event.error !== 'aborted') {
+      showToast('Lỗi nhận diện giọng nói: ' + event.error, 'error');
+    }
+    btnElement.classList.remove('recording');
+    btnElement.querySelector('.voice-icon').textContent = '🎤';
+    btnElement.title = 'Nhập bằng giọng nói';
+    state.activeVoiceRecognition = null;
+  };
+
+  recognition.onend = () => {
+    btnElement.classList.remove('recording');
+    btnElement.querySelector('.voice-icon').textContent = '🎤';
+    btnElement.title = 'Nhập bằng giọng nói';
+    state.activeVoiceRecognition = null;
+  };
+
+  recognition.start();
+  state.activeVoiceRecognition = recognition;
 }
 
 // =============================================
@@ -1156,6 +1335,72 @@ async function deleteUser(userId, displayName) {
 }
 
 // =============================================
+// ADMIN: REVIEW TOPICS MANAGEMENT
+// =============================================
+function switchAdminTab(tab) {
+  document.getElementById('admin-tab-users').classList.toggle('active', tab === 'users');
+  document.getElementById('admin-tab-review').classList.toggle('active', tab === 'review');
+  document.getElementById('admin-panel-users').style.display = tab === 'users' ? 'block' : 'none';
+  document.getElementById('admin-panel-review').style.display = tab === 'review' ? 'block' : 'none';
+
+  if (tab === 'review') {
+    loadAdminReviewTopics();
+  }
+}
+
+async function loadAdminReviewTopics() {
+  try {
+    const topics = await apiGet('/admin/review-topics');
+    const list = document.getElementById('admin-review-list');
+    const empty = document.getElementById('empty-admin-review');
+
+    if (topics.length === 0) {
+      list.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+
+    empty.style.display = 'none';
+    list.innerHTML = topics.map(t => {
+      const createdAt = t.created_at ? new Date(t.created_at).toLocaleDateString('vi-VN') : 'N/A';
+      return `
+        <div class="admin-review-card">
+          <div class="admin-review-info">
+            <div class="admin-review-name">📌 ${escapeHtml(t.name)}</div>
+            <div class="admin-review-meta">
+              <span>👤 ${escapeHtml(t.owner_name || t.owner_username)}</span>
+              <span>·</span>
+              <span>❓ ${t.question_count} câu</span>
+              <span>·</span>
+              <span>📅 ${createdAt}</span>
+            </div>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="adminDeleteReviewTopic(${t.id}, '${escapeAttr(t.name)}')">🗑️ Xóa</button>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function adminDeleteReviewTopic(topicId, topicName) {
+  const confirmed = await showConfirm(
+    '🗑️ Xóa chủ đề ôn lại?',
+    `Admin xóa chủ đề ôn lại "${topicName}"?`
+  );
+  if (!confirmed) return;
+
+  try {
+    await apiDelete(`/admin/review-topics/${topicId}`);
+    showToast('Đã xóa chủ đề ôn lại!');
+    loadAdminReviewTopics();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// =============================================
 // MODALS & UTILS
 // =============================================
 function openModal(id) { document.getElementById(id).classList.add('show'); }
@@ -1251,6 +1496,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ---- Results Screen ----
   document.getElementById('btn-retry-quiz').addEventListener('click', retryQuiz);
+  document.getElementById('btn-review-wrong').addEventListener('click', createReviewTopic);
   document.getElementById('btn-back-to-topic').addEventListener('click', () => {
     state.quizRound = 1;
     if (String(state.currentTopicId).startsWith('all')) {
