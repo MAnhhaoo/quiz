@@ -3,6 +3,8 @@ const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const mammoth = require('mammoth');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -486,6 +488,33 @@ app.delete('/api/questions/:id', authMiddleware, async (req, res) => {
 
   await execute('DELETE FROM questions WHERE id = ?', [Number(req.params.id)]);
   res.json({ message: 'Đã xóa câu hỏi thành công' });
+});
+
+// =============================================
+// API — PARSE WORD (.docx) FILE
+// =============================================
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+// POST parse Word document -> extract raw text
+app.post('/api/parse-docx', authMiddleware, upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Vui lòng upload file .docx' });
+  }
+
+  try {
+    const result = await mammoth.extractRawText({ buffer: req.file.buffer });
+    const text = result.value || '';
+
+    if (!text.trim()) {
+      return res.status(400).json({ error: 'File Word không có nội dung text' });
+    }
+
+    res.json({ text, messages: result.messages || [] });
+  } catch (err) {
+    console.error('Error parsing .docx:', err);
+    res.status(500).json({ error: 'Lỗi đọc file Word: ' + (err.message || String(err)) });
+  }
 });
 
 // =============================================

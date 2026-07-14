@@ -654,48 +654,619 @@ async function deleteQuestion(id) {
 }
 
 // =============================================
-// IMPORT / EXPORT JSON
+// IMPORT / EXPORT — MULTI-FORMAT SUPPORT
 // =============================================
+
+// State for import wizard
+let importState = {
+  parsedQuestions: [],   // Array of parsed question objects
+  validQuestions: [],    // Only valid ones ready to import
+  errors: [],            // Parse/validation errors
+  selectedFile: null,    // Selected File object
+};
+
+function resetImportState() {
+  importState = { parsedQuestions: [], validQuestions: [], errors: [], selectedFile: null };
+}
+
 function openImportModal() {
-  document.getElementById('import-file').value = '';
-  document.getElementById('import-json-text').value = '';
+  resetImportState();
+  // Reset UI
+  const fileInput = document.getElementById('import-file');
+  if (fileInput) fileInput.value = '';
+  const textInput = document.getElementById('import-text-input');
+  if (textInput) textInput.value = '';
+  document.getElementById('import-file-info').style.display = 'none';
+  document.getElementById('paste-format-group').style.display = 'none';
+
+  // Show step 1
+  showImportStep(1);
   openModal('modal-import');
 }
 
-async function doImport() {
-  const fileInput = document.getElementById('import-file');
-  const textInput = document.getElementById('import-json-text').value.trim();
+function showImportStep(step) {
+  // Update step indicators
+  for (let i = 1; i <= 3; i++) {
+    const stepEl = document.getElementById(`import-step-${i}`);
+    stepEl.classList.remove('active', 'completed');
+    if (i < step) stepEl.classList.add('completed');
+    if (i === step) stepEl.classList.add('active');
+  }
 
-  let questions = [];
+  // Show/hide panels
+  document.getElementById('import-panel-file').style.display = step === 1 ? 'block' : 'none';
+  document.getElementById('import-panel-preview').style.display = step === 2 ? 'block' : 'none';
+  document.getElementById('import-panel-result').style.display = step === 3 ? 'block' : 'none';
+}
+
+// --- File Selection Handling ---
+function handleFileSelected(file) {
+  if (!file) return;
+  importState.selectedFile = file;
+
+  const ext = file.name.split('.').pop().toLowerCase();
+  const icons = { json: '📋', txt: '📝', csv: '📊', xlsx: '📗', xls: '📗' };
+  const formatSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  document.getElementById('file-info-icon').textContent = icons[ext] || '📄';
+  document.getElementById('file-info-name').textContent = file.name;
+  document.getElementById('file-info-size').textContent = formatSize(file.size);
+  document.getElementById('import-file-info').style.display = 'flex';
+}
+
+function removeSelectedFile() {
+  importState.selectedFile = null;
+  document.getElementById('import-file').value = '';
+  document.getElementById('import-file-info').style.display = 'none';
+}
+
+// --- Format Guide Tab Switcher ---
+function switchGuideTab(format) {
+  document.querySelectorAll('.guide-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.guide-panel').forEach(p => p.classList.remove('active'));
+
+  const tab = Array.from(document.querySelectorAll('.guide-tab')).find(t => t.textContent.toLowerCase().includes(format));
+  if (tab) tab.classList.add('active');
+
+  const panel = document.getElementById(`guide-${format}`);
+  if (panel) panel.classList.add('active');
+}
+
+// --- Detect pasted text format ---
+function detectTextFormat(text) {
+  text = text.trim();
+  // Try JSON
+  if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
+    try { JSON.parse(text); return 'json'; } catch (e) { /* not valid JSON */ }
+  }
+  // CSV detection: first line has commas and looks like a header
+  const firstLine = text.split('\n')[0].toLowerCase();
+  if (firstLine.includes('content') && firstLine.includes(',')) return 'csv';
+  // Default: TXT
+  return 'txt';
+}
+
+// =============================================
+// PARSERS — Convert file content to question array
+// =============================================
+
+// --- JSON Parser ---
+function parseJSON(text) {
+  const questions = [];
+  const errors = [];
+
+  let data;
+  try {
+    data = JSON.parse(text.trim());
+  } catch (e) {
+    errors.push('Cấu trúc JSON không hợp lệ: ' + e.message);
+    return { questions, errors };
+  }
+
+  // If it's an object with a "questions" key, unwrap it
+  if (data && !Array.isArray(data) && Array.isArray(data.questions)) {
+    data = data.questions;
+  }
+
+  if (!Array.isArray(data)) {
+    errors.push('JSON phải là một mảng câu hỏi hoặc object có trường "questions".');
+    return { questions, errors };
+  }
+
+  data.forEach((q, i) => {
+    const parsed = normalizeQuestion(q, i + 1);
+    if (parsed.error) errors.push(parsed.error);
+    questions.push(parsed.question);
+  });
+
+  return { questions, errors };
+}
+
+// --- CSV Parser ---
+function parseCSV(text) {
+  const questions = [];
+  const errors = [];
+
+  const lines = parseCSVLines(text.trim());
+  if (lines.length < 2) {
+    errors.push('File CSV phải có ít nhất 2 dòng (header + 1 câu hỏi).');
+    return { questions, errors };
+  }
+
+  // Parse header
+  const headers = lines[0].map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+
+  // Map columns
+  const colMap = {};
+  const knownCols = ['content', 'option_a', 'option_b', 'option_c', 'option_d', 'correct_answer', 'type', 'question_type', 'explanation', 'example_sentence'];
+  // Also support Vietnamese column names
+  const viMap = { 'câu hỏi': 'content', 'nội dung': 'content', 'phương án a': 'option_a', 'phương_án_a': 'option_a', 'a': 'option_a', 'b': 'option_b', 'c': 'option_c', 'd': 'option_d', 'phương án b': 'option_b', 'phương_án_b': 'option_b', 'phương án c': 'option_c', 'phương_án_c': 'option_c', 'phương án d': 'option_d', 'phương_án_d': 'option_d', 'đáp án': 'correct_answer', 'đáp_án': 'correct_answer', 'đáp_án_đúng': 'correct_answer', 'loại': 'type', 'giải thích': 'explanation', 'giải_thích': 'explanation', 'ví dụ': 'example_sentence', 'ví_dụ': 'example_sentence' };
+
+  headers.forEach((h, idx) => {
+    if (knownCols.includes(h)) {
+      colMap[h] = idx;
+    } else if (viMap[h]) {
+      colMap[viMap[h]] = idx;
+    }
+  });
+
+  if (colMap['content'] === undefined) {
+    // Try first column as content if not found
+    colMap['content'] = 0;
+  }
+
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i];
+    if (row.length === 0 || (row.length === 1 && !row[0].trim())) continue; // skip empty rows
+
+    const getCol = (name) => {
+      const idx = colMap[name];
+      return idx !== undefined && idx < row.length ? row[idx].trim() : '';
+    };
+
+    const q = {
+      type: getCol('type') || getCol('question_type') || 'multiple_choice',
+      content: getCol('content'),
+      option_a: getCol('option_a'),
+      option_b: getCol('option_b'),
+      option_c: getCol('option_c'),
+      option_d: getCol('option_d'),
+      correct_answer: getCol('correct_answer'),
+      explanation: getCol('explanation'),
+      example_sentence: getCol('example_sentence'),
+    };
+
+    // Auto-detect essay if no options
+    if (!q.option_a && !q.option_b && !q.option_c && !q.option_d && q.correct_answer) {
+      q.type = 'essay';
+    }
+
+    const parsed = normalizeQuestion(q, i);
+    if (parsed.error) errors.push(parsed.error);
+    questions.push(parsed.question);
+  }
+
+  return { questions, errors };
+}
+
+// Helper: Parse CSV lines handling quoted fields
+function parseCSVLines(text) {
+  const lines = [];
+  let current = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (c === '"' && next === '"') {
+        field += '"';
+        i++;
+      } else if (c === '"') {
+        inQuotes = false;
+      } else {
+        field += c;
+      }
+    } else {
+      if (c === '"') {
+        inQuotes = true;
+      } else if (c === ',') {
+        current.push(field);
+        field = '';
+      } else if (c === '\n' || (c === '\r' && next === '\n')) {
+        current.push(field);
+        field = '';
+        lines.push(current);
+        current = [];
+        if (c === '\r') i++; // skip \n
+      } else if (c === '\r') {
+        current.push(field);
+        field = '';
+        lines.push(current);
+        current = [];
+      } else {
+        field += c;
+      }
+    }
+  }
+  // Last field/line
+  current.push(field);
+  if (current.some(f => f.trim())) lines.push(current);
+
+  return lines;
+}
+
+// --- TXT Parser (structured text) ---
+function parseTXT(text) {
+  const questions = [];
+  const errors = [];
+
+  // Split by double newlines (blank line separators)
+  const blocks = text.split(/\n\s*\n/).filter(b => b.trim());
+
+  blocks.forEach((block, blockIdx) => {
+    const lines = block.split('\n').map(l => l.trim()).filter(l => l);
+    if (lines.length === 0) return;
+
+    const q = {
+      type: 'multiple_choice',
+      content: '',
+      option_a: '',
+      option_b: '',
+      option_c: '',
+      option_d: '',
+      correct_answer: '',
+      explanation: '',
+      example_sentence: '',
+    };
+
+    let contentLines = [];
+    let foundOptions = false;
+
+    for (const line of lines) {
+      // Match option patterns: "A. ...", "A) ...", "A: ...", "a. ..."
+      const optMatch = line.match(/^([A-Da-d])[.):\s]\s*(.+)/);
+      // Match answer line: "Answer: A", "Đáp án: B", "Correct: C", "DA: A", "dap an: B"
+      const ansMatch = line.match(/^(?:answer|đáp\s*án|correct|da|dap\s*an|dapan)\s*[:=]\s*(.+)/i);
+      // Match explanation: "Explanation: ...", "Giải thích: ..."
+      const expMatch = line.match(/^(?:explanation|giải\s*thích|giai\s*thich)\s*[:=]\s*(.+)/i);
+      // Match example: "Example: ...", "Ví dụ: ..."
+      const exMatch = line.match(/^(?:example|ví\s*dụ|vi\s*du)\s*[:=]\s*(.+)/i);
+
+      if (ansMatch) {
+        const ans = ansMatch[1].trim();
+        // Check if it's a letter (A/B/C/D) for MC or full text for essay
+        if (/^[A-Da-d]$/.test(ans)) {
+          q.correct_answer = ans.toUpperCase();
+        } else {
+          q.correct_answer = ans;
+          q.type = 'essay';
+        }
+      } else if (expMatch) {
+        q.explanation = expMatch[1].trim();
+      } else if (exMatch) {
+        q.example_sentence = exMatch[1].trim();
+      } else if (optMatch && !foundOptions) {
+        const letter = optMatch[1].toUpperCase();
+        const text = optMatch[2].trim();
+        if (letter === 'A') q.option_a = text;
+        else if (letter === 'B') q.option_b = text;
+        else if (letter === 'C') q.option_c = text;
+        else if (letter === 'D') { q.option_d = text; foundOptions = true; }
+      } else if (!q.option_a && !ansMatch && !expMatch && !exMatch) {
+        // Content line (before any options)
+        contentLines.push(line);
+      }
+    }
+
+    q.content = contentLines.join(' ');
+
+    // Auto-detect essay if no options found
+    if (!q.option_a && !q.option_b && !q.option_c && !q.option_d) {
+      q.type = 'essay';
+    }
+
+    const parsed = normalizeQuestion(q, blockIdx + 1);
+    if (parsed.error) errors.push(parsed.error);
+    questions.push(parsed.question);
+  });
+
+  return { questions, errors };
+}
+
+// --- Excel Parser (using SheetJS) ---
+function parseExcel(arrayBuffer) {
+  const questions = [];
+  const errors = [];
+
+  if (typeof XLSX === 'undefined') {
+    errors.push('Thư viện SheetJS chưa được tải. Vui lòng tải lại trang.');
+    return { questions, errors };
+  }
 
   try {
-    if (fileInput.files && fileInput.files[0]) {
-      const file = fileInput.files[0];
-      const text = await file.text();
-      questions = JSON.parse(text);
-    } else if (textInput) {
-      questions = JSON.parse(textInput);
-    } else {
-      showToast('Vui lòng chọn file JSON hoặc paste nội dung vào ô!', 'error');
-      return;
+    const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    if (data.length === 0) {
+      errors.push('File Excel không có dữ liệu.');
+      return { questions, errors };
     }
+
+    // Normalize headers (lowercase, underscores)
+    const normalizeHeader = (h) => String(h).trim().toLowerCase().replace(/\s+/g, '_');
+
+    // Vietnamese column name mapping
+    const viMap = { 'câu_hỏi': 'content', 'nội_dung': 'content', 'phương_án_a': 'option_a', 'phương_án_b': 'option_b', 'phương_án_c': 'option_c', 'phương_án_d': 'option_d', 'đáp_án': 'correct_answer', 'đáp_án_đúng': 'correct_answer', 'loại': 'type', 'giải_thích': 'explanation', 'ví_dụ': 'example_sentence' };
+
+    data.forEach((row, i) => {
+      const normalized = {};
+      Object.keys(row).forEach(key => {
+        let nKey = normalizeHeader(key);
+        if (viMap[nKey]) nKey = viMap[nKey];
+        normalized[nKey] = String(row[key]).trim();
+      });
+
+      const q = {
+        type: normalized.type || normalized.question_type || 'multiple_choice',
+        content: normalized.content || '',
+        option_a: normalized.option_a || '',
+        option_b: normalized.option_b || '',
+        option_c: normalized.option_c || '',
+        option_d: normalized.option_d || '',
+        correct_answer: normalized.correct_answer || '',
+        explanation: normalized.explanation || '',
+        example_sentence: normalized.example_sentence || '',
+      };
+
+      if (!q.option_a && !q.option_b && !q.option_c && !q.option_d && q.correct_answer) {
+        q.type = 'essay';
+      }
+
+      const parsed = normalizeQuestion(q, i + 1);
+      if (parsed.error) errors.push(parsed.error);
+      questions.push(parsed.question);
+    });
+
   } catch (e) {
-    showToast('Cấu trúc JSON không hợp lệ! Vui lòng kiểm tra lại.', 'error');
+    errors.push('Lỗi đọc file Excel: ' + e.message);
+  }
+
+  return { questions, errors };
+}
+
+// --- Normalize & Validate a single question ---
+function normalizeQuestion(raw, index) {
+  const q = {
+    type: (raw.type || raw.question_type || 'multiple_choice').toLowerCase().trim(),
+    content: (raw.content || '').trim(),
+    option_a: (raw.option_a || '').trim(),
+    option_b: (raw.option_b || '').trim(),
+    option_c: (raw.option_c || '').trim(),
+    option_d: (raw.option_d || '').trim(),
+    correct_answer: (raw.correct_answer || '').trim(),
+    explanation: (raw.explanation || '').trim(),
+    example_sentence: (raw.example_sentence || '').trim(),
+    _valid: true,
+    _error: '',
+  };
+
+  // Map type aliases
+  if (['mc', 'trac_nghiem', 'trắc nghiệm', 'trắc_nghiệm', 'tracnghiem'].includes(q.type)) q.type = 'multiple_choice';
+  if (['tu_luan', 'tự luận', 'tự_luận', 'tuluan'].includes(q.type)) q.type = 'essay';
+
+  let error = null;
+
+  if (!q.content) {
+    q._valid = false;
+    q._error = 'Thiếu nội dung';
+    error = `Câu ${index}: Thiếu nội dung câu hỏi`;
+  } else if (q.type === 'multiple_choice') {
+    if (!q.option_a || !q.option_b || !q.option_c || !q.option_d) {
+      q._valid = false;
+      q._error = 'Thiếu phương án';
+      error = `Câu ${index}: Thiếu phương án A/B/C/D`;
+    } else if (!['A', 'B', 'C', 'D'].includes(q.correct_answer.toUpperCase())) {
+      q._valid = false;
+      q._error = 'Đáp án không hợp lệ';
+      error = `Câu ${index}: Đáp án đúng phải là A, B, C hoặc D`;
+    } else {
+      q.correct_answer = q.correct_answer.toUpperCase();
+    }
+  } else if (q.type === 'essay') {
+    if (!q.correct_answer) {
+      q._valid = false;
+      q._error = 'Thiếu đáp án mẫu';
+      error = `Câu ${index}: Thiếu đáp án mẫu cho câu tự luận`;
+    }
+  }
+
+  return { question: q, error };
+}
+
+// =============================================
+// IMPORT WIZARD — Step Actions
+// =============================================
+
+async function parseAndPreview() {
+  const fileInput = document.getElementById('import-file');
+  const textInput = document.getElementById('import-text-input').value.trim();
+  const file = importState.selectedFile || (fileInput.files && fileInput.files[0]);
+
+  let result = { questions: [], errors: [] };
+
+  if (file) {
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      // Excel: read as ArrayBuffer
+      const buffer = await file.arrayBuffer();
+      result = parseExcel(new Uint8Array(buffer));
+    } else {
+      // Text-based: read as text
+      const text = await file.text();
+      if (ext === 'json') result = parseJSON(text);
+      else if (ext === 'csv') result = parseCSV(text);
+      else if (ext === 'txt') result = parseTXT(text);
+      else {
+        // Try auto-detect
+        const fmt = detectTextFormat(text);
+        if (fmt === 'json') result = parseJSON(text);
+        else if (fmt === 'csv') result = parseCSV(text);
+        else result = parseTXT(text);
+      }
+    }
+  } else if (textInput) {
+    // Pasted text — detect or use selected format
+    const formatRadio = document.querySelector('input[name="paste_format"]:checked');
+    let fmt = formatRadio ? formatRadio.value : 'auto';
+    if (fmt === 'auto') fmt = detectTextFormat(textInput);
+
+    if (fmt === 'json') result = parseJSON(textInput);
+    else if (fmt === 'csv') result = parseCSV(textInput);
+    else result = parseTXT(textInput);
+  } else {
+    showToast('Vui lòng chọn file hoặc dán nội dung vào ô!', 'error');
     return;
   }
 
+  if (result.questions.length === 0 && result.errors.length > 0) {
+    showToast(result.errors[0], 'error');
+    return;
+  }
+
+  if (result.questions.length === 0) {
+    showToast('Không tìm thấy câu hỏi nào trong file!', 'error');
+    return;
+  }
+
+  // Save to state
+  importState.parsedQuestions = result.questions;
+  importState.validQuestions = result.questions.filter(q => q._valid);
+  importState.errors = result.errors;
+
+  // Render preview
+  renderImportPreview();
+  showImportStep(2);
+}
+
+function renderImportPreview() {
+  const { parsedQuestions, validQuestions, errors } = importState;
+
+  const mcCount = validQuestions.filter(q => q.type === 'multiple_choice').length;
+  const essayCount = validQuestions.filter(q => q.type === 'essay').length;
+
+  document.getElementById('preview-total').textContent = `📝 ${parsedQuestions.length} câu hỏi`;
+  document.getElementById('preview-mc').textContent = `📋 ${mcCount} trắc nghiệm`;
+  document.getElementById('preview-essay').textContent = `✍️ ${essayCount} tự luận`;
+  document.getElementById('import-valid-count').textContent = validQuestions.length;
+
+  // Errors
+  const errorsDiv = document.getElementById('preview-errors');
+  const errorDetails = document.getElementById('import-error-details');
+  const errorCountSpan = document.getElementById('preview-error-count');
+  const errorInvalid = parsedQuestions.filter(q => !q._valid).length;
+
+  if (errorInvalid > 0 || errors.length > 0) {
+    errorsDiv.style.display = 'block';
+    errorCountSpan.textContent = errorInvalid + errors.length;
+    errorDetails.style.display = 'block';
+    const allErrors = [...errors, ...parsedQuestions.filter(q => !q._valid).map((q, i) => `Câu ${i + 1}: ${q._error}`)];
+    document.getElementById('import-error-list').innerHTML = allErrors.slice(0, 10).map(e => `<li>${escapeHtml(e)}</li>`).join('');
+  } else {
+    errorsDiv.style.display = 'none';
+    errorDetails.style.display = 'none';
+  }
+
+  // Table
+  const tbody = document.getElementById('import-preview-tbody');
+  tbody.innerHTML = parsedQuestions.map((q, i) => {
+    const isEssay = q.type === 'essay';
+    const typeBadge = isEssay
+      ? '<span class="type-badge-essay">Tự luận</span>'
+      : '<span class="type-badge-mc">Trắc nghiệm</span>';
+
+    const optionsCell = isEssay
+      ? '<em style="color:var(--text-muted)">—</em>'
+      : `<span style="font-size:0.72rem;">A: ${escapeHtml((q.option_a || '').substring(0, 20))}${q.option_a.length > 20 ? '…' : ''}<br>B: ${escapeHtml((q.option_b || '').substring(0, 20))}${q.option_b.length > 20 ? '…' : ''}<br>C: ${escapeHtml((q.option_c || '').substring(0, 20))}${q.option_c.length > 20 ? '…' : ''}<br>D: ${escapeHtml((q.option_d || '').substring(0, 20))}${q.option_d.length > 20 ? '…' : ''}</span>`;
+
+    const answerCell = isEssay
+      ? `<span style="font-size:0.72rem;">${escapeHtml((q.correct_answer || '').substring(0, 30))}${q.correct_answer.length > 30 ? '…' : ''}</span>`
+      : `<strong>${escapeHtml(q.correct_answer)}</strong>`;
+
+    const statusCell = q._valid
+      ? '<span class="status-ok">✅</span>'
+      : `<span class="status-error">❌ ${escapeHtml(q._error)}</span>`;
+
+    const contentPreview = (q.content || '').substring(0, 60) + (q.content.length > 60 ? '…' : '');
+
+    return `
+      <tr class="${q._valid ? '' : 'row-error'}">
+        <td class="col-num">${i + 1}</td>
+        <td class="col-type">${typeBadge}</td>
+        <td class="col-content">${escapeHtml(contentPreview)}</td>
+        <td class="col-options">${optionsCell}</td>
+        <td class="col-answer">${answerCell}</td>
+        <td class="col-status">${statusCell}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function doImport() {
+  const { validQuestions } = importState;
+
+  if (validQuestions.length === 0) {
+    showToast('Không có câu hỏi hợp lệ nào để import!', 'error');
+    return;
+  }
+
+  // Convert to server format
+  const questions = validQuestions.map(q => ({
+    type: q.type,
+    content: q.content,
+    option_a: q.option_a,
+    option_b: q.option_b,
+    option_c: q.option_c,
+    option_d: q.option_d,
+    correct_answer: q.correct_answer,
+    explanation: q.explanation,
+    example_sentence: q.example_sentence,
+  }));
+
   try {
     const res = await apiPost(`/topics/${state.currentTopicId}/import`, { questions });
-    showToast(`Đã import thành công ${res.imported}/${res.total} câu hỏi!`);
-    if (res.errors && res.errors.length > 0) {
-      console.warn('Import errors:', res.errors);
-      alert('Một số câu hỏi bị lỗi:\n' + res.errors.slice(0, 5).join('\n') + (res.errors.length > 5 ? '\n...' : ''));
+
+    // Show result
+    showImportStep(3);
+
+    if (res.imported === questions.length) {
+      document.getElementById('import-result-icon').textContent = '🎉';
+      document.getElementById('import-result-title').textContent = 'Import thành công!';
+      document.getElementById('import-result-message').textContent = `Đã thêm ${res.imported} câu hỏi vào chủ đề.`;
+    } else {
+      document.getElementById('import-result-icon').textContent = '⚠️';
+      document.getElementById('import-result-title').textContent = 'Import hoàn tất (có lỗi)';
+      document.getElementById('import-result-message').textContent = `Đã import ${res.imported}/${res.total} câu hỏi. ${res.errors ? res.errors.length + ' câu bị lỗi.' : ''}`;
     }
-    closeModal('modal-import');
-    loadQuestions();
+
+    showToast(`Đã import ${res.imported}/${res.total} câu hỏi!`);
   } catch (err) {
     showToast(err.message, 'error');
   }
+}
+
+function closeImportAndRefresh() {
+  closeModal('modal-import');
+  loadQuestions();
 }
 
 async function exportJson() {
@@ -713,6 +1284,7 @@ async function exportJson() {
     showToast(err.message, 'error');
   }
 }
+
 
 // =============================================
 // SCREEN: QUIZ
@@ -1478,7 +2050,49 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-export-json').addEventListener('click', exportJson);
   document.getElementById('modal-close-import').addEventListener('click', () => closeModal('modal-import'));
   document.getElementById('btn-cancel-import').addEventListener('click', () => closeModal('modal-import'));
+  document.getElementById('btn-parse-file').addEventListener('click', parseAndPreview);
   document.getElementById('btn-do-import').addEventListener('click', doImport);
+  document.getElementById('btn-preview-back').addEventListener('click', () => showImportStep(1));
+  document.getElementById('btn-import-done').addEventListener('click', closeImportAndRefresh);
+  document.getElementById('btn-remove-file').addEventListener('click', removeSelectedFile);
+
+  // Drag & Drop zone
+  const dropzone = document.getElementById('import-dropzone');
+  if (dropzone) {
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleFileSelected(e.dataTransfer.files[0]);
+        // Also set the file input for consistency
+        const fileInput = document.getElementById('import-file');
+        const dt = new DataTransfer();
+        dt.items.add(e.dataTransfer.files[0]);
+        fileInput.files = dt.files;
+      }
+    });
+  }
+
+  // File input change
+  document.getElementById('import-file').addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) handleFileSelected(e.target.files[0]);
+  });
+
+  // Paste text format detection
+  document.getElementById('import-text-input').addEventListener('input', (e) => {
+    const val = e.target.value.trim();
+    document.getElementById('paste-format-group').style.display = val ? 'block' : 'none';
+  });
+
+  // Format radio toggle
+  document.querySelectorAll('input[name="paste_format"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.format-radio').forEach(r => r.classList.remove('active'));
+      radio.closest('.format-radio').classList.add('active');
+    });
+  });
 
   // ---- Quiz Screen ----
   document.getElementById('btn-next-question').addEventListener('click', nextQuestion);

@@ -180,7 +180,7 @@
         </div>
         <div class="header-actions">
           <span class="badge" id="manage-question-count">0 câu hỏi</span>
-          <button class="btn btn-ghost btn-sm" id="btn-import-json" title="Import JSON">📥 Import</button>
+          <button class="btn btn-ghost btn-sm" id="btn-import-json" title="Import từ File (JSON, TXT, CSV, Excel)">📥 Import File</button>
           <button class="btn btn-ghost btn-sm" id="btn-export-json" title="Export JSON">📤 Export</button>
           <button class="btn btn-primary" id="btn-add-question">
             <span class="btn-icon">＋</span> Thêm câu hỏi
@@ -188,25 +188,240 @@
         </div>
       </div>
 
-      <!-- Import JSON Modal -->
+      <!-- Import File Modal (Multi-format) -->
       <div class="modal-overlay" id="modal-import">
-        <div class="modal modal-wide">
+        <div class="modal modal-import-lg">
           <div class="modal-header">
-            <h3>📥 Import câu hỏi từ JSON</h3>
+            <h3>📥 Import câu hỏi từ File</h3>
             <button class="modal-close" id="modal-close-import">&times;</button>
           </div>
-          <div class="form-group">
-            <label>Chọn file JSON hoặc paste nội dung vào ô bên dưới:</label>
-            <input type="file" id="import-file" accept=".json" class="file-input">
+
+          <!-- Step indicator -->
+          <div class="import-steps">
+            <div class="import-step active" id="import-step-1">
+              <span class="step-number">1</span>
+              <span class="step-label">Chọn file</span>
+            </div>
+            <div class="import-step-divider"></div>
+            <div class="import-step" id="import-step-2">
+              <span class="step-number">2</span>
+              <span class="step-label">Xem trước</span>
+            </div>
+            <div class="import-step-divider"></div>
+            <div class="import-step" id="import-step-3">
+              <span class="step-number">3</span>
+              <span class="step-label">Import</span>
+            </div>
           </div>
-          <div class="form-group">
-            <label for="import-json-text">Nội dung JSON:</label>
-            <textarea id="import-json-text" rows="12"
-              placeholder='[{"type":"multiple_choice","content":"...","option_a":"...","option_b":"...","option_c":"...","option_d":"...","correct_answer":"A"},{"type":"essay","content":"...","correct_answer":"..."}]'></textarea>
+
+          <!-- Step 1: File Selection -->
+          <div class="import-panel" id="import-panel-file">
+            <!-- Drag & Drop Zone -->
+            <div class="import-dropzone" id="import-dropzone">
+              <div class="dropzone-icon">📂</div>
+              <p class="dropzone-text">Kéo thả file vào đây</p>
+              <p class="dropzone-hint">hoặc click để chọn file</p>
+              <input type="file" id="import-file" accept=".json,.txt,.csv,.xls,.xlsx,.doc,.docx" class="dropzone-input">
+              <div class="dropzone-formats">
+                <span class="format-badge format-json">JSON</span>
+                <span class="format-badge format-txt">TXT</span>
+                <span class="format-badge format-csv">CSV</span>
+                <span class="format-badge format-excel">Excel</span>
+                <span class="format-badge format-word">Word</span>
+              </div>
+            </div>
+
+            <!-- Selected file info -->
+            <div class="import-file-info" id="import-file-info" style="display:none;">
+              <div class="file-info-icon" id="file-info-icon">📄</div>
+              <div class="file-info-details">
+                <div class="file-info-name" id="file-info-name">filename.json</div>
+                <div class="file-info-size" id="file-info-size">12 KB</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" id="btn-remove-file" title="Xóa file">✕</button>
+            </div>
+
+            <!-- Or paste text -->
+            <div class="import-divider-or">
+              <span>HOẶC</span>
+            </div>
+            <div class="form-group">
+              <label for="import-text-input">Dán nội dung trực tiếp:</label>
+              <textarea id="import-text-input" rows="6" placeholder="Dán nội dung JSON, CSV, hoặc text vào đây..."></textarea>
+            </div>
+
+            <!-- Format selector for pasted text -->
+            <div class="form-group" id="paste-format-group" style="display:none;">
+              <label>Định dạng nội dung đã dán:</label>
+              <div class="format-selector">
+                <label class="format-radio active" data-format="auto">
+                  <input type="radio" name="paste_format" value="auto" checked>
+                  <span>🔍 Tự động</span>
+                </label>
+                <label class="format-radio" data-format="json">
+                  <input type="radio" name="paste_format" value="json">
+                  <span>📋 JSON</span>
+                </label>
+                <label class="format-radio" data-format="csv">
+                  <input type="radio" name="paste_format" value="csv">
+                  <span>📊 CSV</span>
+                </label>
+                <label class="format-radio" data-format="txt">
+                  <input type="radio" name="paste_format" value="txt">
+                  <span>📝 TXT</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Format Guide (collapsible) -->
+            <details class="import-format-guide">
+              <summary>📖 Hướng dẫn định dạng file</summary>
+              <div class="format-guide-content">
+                <!-- Format guide tabs -->
+                <div class="format-guide-tabs">
+                  <button class="guide-tab active" onclick="switchGuideTab('json')">JSON</button>
+                  <button class="guide-tab" onclick="switchGuideTab('txt')">TXT</button>
+                  <button class="guide-tab" onclick="switchGuideTab('csv')">CSV</button>
+                  <button class="guide-tab" onclick="switchGuideTab('excel')">Excel</button>
+                  <button class="guide-tab" onclick="switchGuideTab('word')">Word</button>
+                </div>
+
+                <div class="guide-panel active" id="guide-json">
+                  <pre><code>[
+  {
+    "type": "multiple_choice",
+    "content": "What is 'cat'?",
+    "option_a": "Con mèo",
+    "option_b": "Con chó",
+    "option_c": "Con gà",
+    "option_d": "Con vịt",
+    "correct_answer": "A"
+  },
+  {
+    "type": "essay",
+    "content": "Translate: Hello",
+    "correct_answer": "Xin chào"
+  }
+]</code></pre>
+                </div>
+
+                <div class="guide-panel" id="guide-txt">
+                  <p><strong>Mỗi câu hỏi cách nhau bằng 1 dòng trống:</strong></p>
+                  <pre><code>What is 'dog'?
+A. Con chó
+B. Con mèo
+C. Con gà
+D. Con vịt
+Answer: A
+
+Translate: Good morning
+Answer: Chào buổi sáng</code></pre>
+                  <p class="guide-note">💡 Nếu có 4 phương án A-D → Trắc nghiệm. Nếu chỉ có Answer → Tự luận.</p>
+                </div>
+
+                <div class="guide-panel" id="guide-csv">
+                  <p><strong>Dòng đầu là header, các dòng sau là câu hỏi:</strong></p>
+                  <pre><code>content,option_a,option_b,option_c,option_d,correct_answer
+"What is 'cat'?","Con mèo","Con chó","Con gà","Con vịt","A"
+"What is 'dog'?","Con chó","Con mèo","Con cá","Con vịt","A"</code></pre>
+                  <p class="guide-note">💡 Câu tự luận: chỉ cần cột content và correct_answer.</p>
+                </div>
+
+                <div class="guide-panel" id="guide-excel">
+                  <p><strong>File Excel (.xlsx, .xls) với các cột:</strong></p>
+                  <table class="guide-table">
+                    <thead>
+                      <tr>
+                        <th>content</th><th>option_a</th><th>option_b</th><th>option_c</th><th>option_d</th><th>correct_answer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>What is 'cat'?</td><td>Con mèo</td><td>Con chó</td><td>Con gà</td><td>Con vịt</td><td>A</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p class="guide-note">💡 Cột tùy chọn: type, explanation, example_sentence</p>
+                </div>
+
+                <div class="guide-panel" id="guide-word">
+                  <p><strong>File Word (.docx) với câu hỏi đánh số:</strong></p>
+                  <pre><code>1. Vai trò của Đảng trong kháng chiến là gì?
+A. Gián tiếp
+B. Lãnh đạo toàn diện
+C. Không có
+D. Phụ
+Đáp án: B
+
+2. Thủ đô Việt Nam là gì?
+A. Hồ Chí Minh
+B. Đà Nẵng
+C. Hà Nội
+D. Huế
+Đáp án: C</code></pre>
+                  <p class="guide-note">💡 App sẽ tự động đọc nội dung file Word và nhận dạng câu hỏi đánh số, phương án A-D, và dòng "Đáp án:"</p>
+                </div>
+              </div>
+            </details>
+
+            <div class="form-actions">
+              <button class="btn btn-ghost" id="btn-cancel-import">Hủy</button>
+              <button class="btn btn-primary" id="btn-parse-file">🔍 Phân tích & Xem trước</button>
+            </div>
           </div>
-          <div class="form-actions">
-            <button class="btn btn-ghost" id="btn-cancel-import">Hủy</button>
-            <button class="btn btn-primary" id="btn-do-import">📥 Import</button>
+
+          <!-- Step 2: Preview -->
+          <div class="import-panel" id="import-panel-preview" style="display:none;">
+            <div class="import-preview-header">
+              <div class="preview-stats">
+                <span class="preview-stat" id="preview-total">📝 0 câu hỏi</span>
+                <span class="preview-stat preview-mc" id="preview-mc">📋 0 trắc nghiệm</span>
+                <span class="preview-stat preview-essay" id="preview-essay">✍️ 0 tự luận</span>
+              </div>
+              <div class="preview-errors" id="preview-errors" style="display:none;">
+                <span class="preview-error-badge">⚠️ <span id="preview-error-count">0</span> lỗi</span>
+              </div>
+            </div>
+
+            <!-- Preview Table -->
+            <div class="import-preview-table-wrap">
+              <table class="import-preview-table">
+                <thead>
+                  <tr>
+                    <th class="col-num">#</th>
+                    <th class="col-type">Loại</th>
+                    <th class="col-content">Câu hỏi</th>
+                    <th class="col-options">Phương án</th>
+                    <th class="col-answer">Đáp án</th>
+                    <th class="col-status">Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody id="import-preview-tbody"></tbody>
+              </table>
+            </div>
+
+            <!-- Error details -->
+            <div class="import-error-details" id="import-error-details" style="display:none;">
+              <h4>⚠️ Chi tiết lỗi:</h4>
+              <ul id="import-error-list"></ul>
+            </div>
+
+            <div class="form-actions">
+              <button class="btn btn-ghost" id="btn-preview-back">← Quay lại</button>
+              <button class="btn btn-primary btn-large" id="btn-do-import">📥 Import <span id="import-valid-count">0</span> câu hỏi</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Result -->
+          <div class="import-panel" id="import-panel-result" style="display:none;">
+            <div class="import-result-content">
+              <div class="import-result-icon" id="import-result-icon">✅</div>
+              <h3 id="import-result-title">Import thành công!</h3>
+              <p id="import-result-message">Đã thêm 10 câu hỏi vào chủ đề.</p>
+            </div>
+            <div class="form-actions" style="justify-content:center;">
+              <button class="btn btn-primary btn-large" id="btn-import-done">👍 Hoàn tất</button>
+            </div>
           </div>
         </div>
       </div>
@@ -572,6 +787,8 @@
   <!-- Toast Notifications -->
   <div class="toast-container" id="toast-container"></div>
 
+  <!-- SheetJS for Excel file parsing -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="/js/app.js"></script>
 </body>
 
