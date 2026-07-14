@@ -611,8 +611,18 @@ D. Huế
         </div>
       </div>
 
-      <!-- Next Button -->
+      <!-- Next Button + Auto-advance countdown -->
       <div class="quiz-actions" id="quiz-actions" style="display:none;">
+        <div class="auto-advance-bar" id="auto-advance-bar" style="display:none;">
+          <div class="auto-advance-info">
+            <span class="auto-advance-icon">⏩</span>
+            <span class="auto-advance-text" id="auto-advance-text">Tự động chuyển sau <strong id="auto-advance-countdown">5</strong>s</span>
+          </div>
+          <div class="auto-advance-progress">
+            <div class="auto-advance-fill" id="auto-advance-fill"></div>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="btn-cancel-auto-advance" title="Hủy tự động">✕ Dừng</button>
+        </div>
         <button class="btn btn-primary btn-large" id="btn-next-question">Câu tiếp theo →</button>
       </div>
 
@@ -683,6 +693,40 @@ D. Huế
           <button class="btn btn-primary" id="btn-save-api-key">💾 Lưu API Key</button>
         </div>
         <p class="settings-hint" id="api-key-status"></p>
+      </div>
+
+      <div class="card settings-card">
+        <h3>⏩ Tự động chuyển câu khi đúng</h3>
+        <p class="settings-desc">Khi trả lời đúng, app sẽ tự động chuyển sang câu tiếp theo sau thời gian đã chọn. Câu sai luôn phải bấm tay.</p>
+        <div class="form-group">
+          <label>Thời gian chờ (giây):</label>
+          <div class="auto-advance-options" id="auto-advance-options">
+            <label class="radio-card auto-opt" data-val="0">
+              <input type="radio" name="auto_advance" value="0">
+              <span class="radio-label">Tắt</span>
+            </label>
+            <label class="radio-card auto-opt" data-val="3">
+              <input type="radio" name="auto_advance" value="3">
+              <span class="radio-label">3s</span>
+            </label>
+            <label class="radio-card auto-opt" data-val="5">
+              <input type="radio" name="auto_advance" value="5">
+              <span class="radio-label">5s</span>
+            </label>
+            <label class="radio-card auto-opt" data-val="10">
+              <input type="radio" name="auto_advance" value="10">
+              <span class="radio-label">10s</span>
+            </label>
+            <label class="radio-card auto-opt" data-val="15">
+              <input type="radio" name="auto_advance" value="15">
+              <span class="radio-label">15s</span>
+            </label>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="btn-save-auto-advance">💾 Lưu cài đặt</button>
+        </div>
+        <p class="settings-hint" id="auto-advance-status"></p>
       </div>
 
       <div class="card settings-card">

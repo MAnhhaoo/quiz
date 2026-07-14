@@ -18,6 +18,9 @@ const state = {
   quizRound: 1,
   quizWrongQuestions: [], // Track wrong question IDs
   activeVoiceRecognition: null, // Track active speech recognition
+  autoAdvanceDelay: 0, // 0 = off, 3/5/10/15 seconds
+  autoAdvanceTimer: null, // interval ID for countdown
+  autoAdvanceTimeout: null, // timeout ID for auto-advance
 };
 
 // =============================================
@@ -1291,6 +1294,14 @@ async function exportJson() {
 // =============================================
 async function startQuiz() {
   try {
+    // Load auto-advance setting
+    try {
+      const advRes = await apiGet('/settings/auto_advance_delay');
+      state.autoAdvanceDelay = parseInt(advRes.value) || 0;
+    } catch (e) {
+      state.autoAdvanceDelay = 0;
+    }
+
     let endpoint = `/topics/${state.currentTopicId}/quiz`;
     if (String(state.currentTopicId).startsWith('all')) {
       const queryPart = String(state.currentTopicId).includes('?') ? String(state.currentTopicId).substring(String(state.currentTopicId).indexOf('?')) : '';
@@ -1396,7 +1407,7 @@ function selectAnswer(label) {
 
   showExplanationBox(q);
   showUserReviewForm();
-  showNextButton();
+  showNextButton(isCorrect);
 }
 
 function showUserReviewForm() {
@@ -1494,7 +1505,7 @@ async function submitEssay() {
 
     aiResult.style.display = 'block';
     showUserReviewForm();
-    showNextButton();
+    showNextButton(res.is_correct || res.score >= 50);
   } catch (err) {
     document.getElementById('ai-loading').style.display = 'none';
     showToast('Lỗi khi chấm điểm: ' + err.message, 'error');
@@ -1523,24 +1534,80 @@ function showExplanationBox(q) {
   box.style.display = 'block';
 }
 
-function showNextButton() {
+function showNextButton(isCorrect = false) {
   const actions = document.getElementById('quiz-actions');
   const nextBtn = document.getElementById('btn-next-question');
+  const autoBar = document.getElementById('auto-advance-bar');
+
   if (state.quizCurrentIndex < state.quizQuestions.length - 1) {
     nextBtn.textContent = 'Câu tiếp theo →';
   } else {
     nextBtn.textContent = '📊 Xem kết quả';
   }
   actions.style.display = 'flex';
+
+  // Auto-advance only on correct answers and not on last question
+  if (isCorrect && state.autoAdvanceDelay > 0 && state.quizCurrentIndex < state.quizQuestions.length - 1) {
+    startAutoAdvanceCountdown();
+  } else {
+    autoBar.style.display = 'none';
+  }
 }
 
 function nextQuestion() {
+  cancelAutoAdvance();
   if (state.quizCurrentIndex < state.quizQuestions.length - 1) {
     state.quizCurrentIndex++;
     renderQuizQuestion();
   } else {
     showResults();
   }
+}
+
+// =============================================
+// AUTO-ADVANCE COUNTDOWN
+// =============================================
+function startAutoAdvanceCountdown() {
+  cancelAutoAdvance(); // clear any existing
+
+  const delay = state.autoAdvanceDelay;
+  const bar = document.getElementById('auto-advance-bar');
+  const fill = document.getElementById('auto-advance-fill');
+  const countdownEl = document.getElementById('auto-advance-countdown');
+
+  bar.style.display = 'flex';
+  fill.style.width = '100%';
+  countdownEl.textContent = delay;
+
+  let remaining = delay;
+  const startTime = Date.now();
+  const totalMs = delay * 1000;
+
+  state.autoAdvanceTimer = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const pct = Math.max(0, 1 - elapsed / totalMs);
+    fill.style.width = `${pct * 100}%`;
+    const secsLeft = Math.ceil((totalMs - elapsed) / 1000);
+    countdownEl.textContent = Math.max(0, secsLeft);
+  }, 100);
+
+  state.autoAdvanceTimeout = setTimeout(() => {
+    cancelAutoAdvance();
+    nextQuestion();
+  }, totalMs);
+}
+
+function cancelAutoAdvance() {
+  if (state.autoAdvanceTimer) {
+    clearInterval(state.autoAdvanceTimer);
+    state.autoAdvanceTimer = null;
+  }
+  if (state.autoAdvanceTimeout) {
+    clearTimeout(state.autoAdvanceTimeout);
+    state.autoAdvanceTimeout = null;
+  }
+  const bar = document.getElementById('auto-advance-bar');
+  if (bar) bar.style.display = 'none';
 }
 
 // =============================================
@@ -1763,6 +1830,14 @@ async function openSettings() {
   } catch (err) {
     showToast(err.message, 'error');
   }
+  // Load auto-advance setting
+  try {
+    const res = await apiGet('/settings/auto_advance_delay');
+    const val = res.value || '0';
+    const radio = document.querySelector(`input[name="auto_advance"][value="${val}"]`);
+    if (radio) radio.checked = true;
+    document.getElementById('auto-advance-status').textContent = val === '0' ? '❌ Tự động chuyển câu: Tắt' : `✅ Tự động chuyển câu sau ${val} giây khi đúng`;
+  } catch (err) { /* ignore */ }
 }
 
 async function saveSettings() {
@@ -1771,6 +1846,19 @@ async function saveSettings() {
     await apiPut('/settings/gemini_api_key', { value: apiKey });
     showToast('Đã lưu API Key thành công!');
     document.getElementById('api-key-status').textContent = apiKey ? '✅ AI chấm điểm đã sẵn sàng hoạt động' : '⚠️ Chưa có API key, sẽ dùng chế độ so sánh trực tiếp';
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function saveAutoAdvance() {
+  const selected = document.querySelector('input[name="auto_advance"]:checked');
+  const val = selected ? selected.value : '0';
+  try {
+    await apiPut('/settings/auto_advance_delay', { value: val });
+    state.autoAdvanceDelay = parseInt(val);
+    showToast(`Đã lưu! ${val === '0' ? 'Tự động chuyển câu: Tắt' : 'Tự động chuyển câu sau ' + val + 's khi đúng'}`);
+    document.getElementById('auto-advance-status').textContent = val === '0' ? '❌ Tự động chuyển câu: Tắt' : `✅ Tự động chuyển câu sau ${val} giây khi đúng`;
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -2097,9 +2185,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---- Quiz Screen ----
   document.getElementById('btn-next-question').addEventListener('click', nextQuestion);
   document.getElementById('btn-submit-essay').addEventListener('click', submitEssay);
+  document.getElementById('btn-cancel-auto-advance').addEventListener('click', cancelAutoAdvance);
   document.getElementById('btn-quit-quiz').addEventListener('click', async () => {
     const confirmed = await showConfirm('⚠️ Thoát Quiz?', 'Tiến trình làm quiz hiện tại sẽ bị mất. Bạn có chắc muốn thoát?');
     if (confirmed) {
+      cancelAutoAdvance();
       if (String(state.currentTopicId).startsWith('all')) {
         showScreen('home'); loadTopics();
       } else {
@@ -2123,6 +2213,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ---- Settings Screen ----
   document.getElementById('btn-back-from-settings').addEventListener('click', () => { showScreen('home'); loadTopics(); });
   document.getElementById('btn-save-api-key').addEventListener('click', saveSettings);
+  document.getElementById('btn-save-auto-advance').addEventListener('click', saveAutoAdvance);
 
   // ---- Admin Screen ----
   document.getElementById('btn-admin-users').addEventListener('click', loadAdminUsers);
